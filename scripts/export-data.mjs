@@ -9,8 +9,8 @@ import { createSign } from 'node:crypto';
 import { writeFile, mkdir } from 'node:fs/promises';
 
 const SHEET_ID = '1n1aqgvOnbdwxJXPzNpe-AMa2mzKBtMeE4q5exXN1rwo';
-const DATABASE_RANGE = 'Database!A2:BD400';
-const TRACKER_RANGE = "Talent Tracker!A3:AV400";
+const DATABASE_RANGE = 'Database!A2:BD3000';
+const TRACKER_RANGE = "Talent Tracker!A3:AV3000";
 
 const HP_JOB_IDS = [
   '504783', '504775', '504778', '504780', '504786', '504782', '504787',
