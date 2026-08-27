@@ -18,7 +18,7 @@
     --accent-blue: #183A9E;
 
     --sla-color: #183A9E;      /* SLA section accent */
-    --overview-color: #0E6B48; /* Overview section accent */
+    --overview-color: #204ECF; /* Overview section accent — lighter blue from the palette, better text contrast than cyan */
 
     --good-bg: #E3F6ED;  --good-text: #0E6B48;
     --bad-bg: #FBE9E7;   --bad-text: #C0392B;
@@ -74,8 +74,15 @@
   .card .prior { font-size: 9px; color: #8890a0; margin-top: 2px; }
 
   .chart-card { background: var(--surface-card); border-radius: 8px; padding: 10px 14px; box-shadow: 0 1px 4px rgba(15,37,110,.08); margin-bottom: 16px; }
-  .chart-card h3 { margin: 0 0 6px; font-size: 11.5px; color: var(--sla-color); text-transform: uppercase; letter-spacing: .03em; }
-  .chart-wrap { height: 190px; }
+  .chart-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+  .chart-card h3 { margin: 0; font-size: 11.5px; color: var(--sla-color); text-transform: uppercase; letter-spacing: .03em; }
+  .chart-metric-toggle { display: flex; gap: 4px; }
+  .chart-metric-toggle button {
+    font: inherit; font-size: 10.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid #ccd0d8;
+    background: #fff; color: var(--ink-secondary); cursor: pointer;
+  }
+  .chart-metric-toggle button.active { background: var(--sla-color); color: #fff; border-color: var(--sla-color); }
+  .chart-wrap { height: 180px; }
 
   /* ---------- View toggle ---------- */
   .view-toggle { display: flex; gap: 6px; margin: 14px 0 10px; }
@@ -106,10 +113,15 @@
   .result-count { font-size: 10.5px; color: var(--ink-secondary); margin-bottom: 6px; }
 
   /* ---------- Table ---------- */
-  .table-scroll { overflow: auto; max-height: 58vh; background: var(--surface-card); border-radius: 8px; box-shadow: 0 1px 4px rgba(15,37,110,.08); }
+  .table-scroll { overflow: auto; max-height: 62vh; background: var(--surface-card); border-radius: 8px; box-shadow: 0 1px 4px rgba(15,37,110,.08); }
   table { border-collapse: collapse; width: 100%; table-layout: fixed; }
-  th, td { padding: 5px 7px; text-align: left; border-bottom: 1px solid #eef0f2; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  th { position: sticky; top: 0; background: var(--ink); color: #fff; font-weight: 700; font-size: 9.5px; text-transform: uppercase; letter-spacing: .02em; z-index: 5; }
+  td { padding: 4px 6px; text-align: left; border-bottom: 1px solid #eef0f2; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  th {
+    position: sticky; top: 0; background: var(--ink); color: #fff; font-weight: 700; font-size: 9px;
+    text-transform: uppercase; letter-spacing: .01em; z-index: 5; text-align: center;
+    padding: 5px 3px; white-space: normal; line-height: 1.15; vertical-align: bottom;
+  }
+  td.center { text-align: center; }
   tr.hp-row td { background: var(--hp-row); }
   tr:hover td { background: #F5F8FF; }
   tr.hp-row:hover td { background: #E8ECFA; }
@@ -170,7 +182,15 @@
   <div class="cards" id="kpiCardsOverview"></div>
 
   <div class="chart-card">
-    <h3>Posted → Hire, median days by month</h3>
+    <div class="chart-head">
+      <h3 id="chartTitle">Posted → Hire, median days by month</h3>
+      <div class="chart-metric-toggle" id="chartMetricToggle">
+        <button data-metric="postedToHireDays" class="active">Posted→Hire</button>
+        <button data-metric="postedToClaimedDays">Posted→Claimed</button>
+        <button data-metric="claimedToSentDays">Claimed→Sent</button>
+        <button data-metric="sentToHireDays">Sent→Hire</button>
+      </div>
+    </div>
     <div class="chart-wrap"><canvas id="monthlyChart"></canvas></div>
   </div>
 
@@ -336,10 +356,40 @@ function renderKpis() {
       <div class="prior">Prior period: ${c.prior}</div>
     </div>`).join('');
 
-  renderMonthlyChart(start, end);
+  lastPeriod = { start, end };
+  renderMonthlyChart();
 }
 
-function renderMonthlyChart(start, end) {
+const METRIC_LABELS = {
+  postedToHireDays: 'Posted → Hire',
+  postedToClaimedDays: 'Posted → Claimed',
+  claimedToSentDays: 'Claimed → Sent',
+  sentToHireDays: 'Sent → Hire',
+};
+let lastPeriod = null;
+let activeChartMetric = 'postedToHireDays';
+
+// Lightweight inline plugin — draws the value above each bar, no extra CDN dependency.
+const dataLabelPlugin = {
+  id: 'dataLabelPlugin',
+  afterDatasetsDraw(chart) {
+    const { ctx } = chart;
+    chart.getDatasetMeta(0).data.forEach((bar, i) => {
+      const v = chart.data.datasets[0].data[i];
+      if (v === null || v === undefined) return;
+      ctx.save();
+      ctx.fillStyle = '#262D3D';
+      ctx.font = '700 10px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(v.toFixed(1), bar.x, bar.y - 5);
+      ctx.restore();
+    });
+  },
+};
+
+function renderMonthlyChart() {
+  if (!lastPeriod) return;
+  const { start, end } = lastPeriod;
   const months = [];
   let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
   const endCap = new Date(end.getFullYear(), end.getMonth(), 1);
@@ -351,21 +401,36 @@ function renderMonthlyChart(start, end) {
   const values = months.map(m => {
     const mEnd = new Date(m.getFullYear(), m.getMonth() + 1, 1);
     const inMonth = DATA.talents.filter(t => inRange(t.postedDate, m, mEnd));
-    return median(inMonth.map(t => t.postedToHireDays));
+    return median(inMonth.map(t => t[activeChartMetric]));
   });
+
+  document.getElementById('chartTitle').textContent = `${METRIC_LABELS[activeChartMetric]}, median days by month`;
 
   const ctx = document.getElementById('monthlyChart');
   if (monthlyChart) monthlyChart.destroy();
   monthlyChart = new Chart(ctx, {
     type: 'bar',
-    data: { labels, datasets: [{ label: 'Median Posted→Hire (days)', data: values, backgroundColor: '#183A9E', borderRadius: 4 }] },
+    data: { labels, datasets: [{ data: values, backgroundColor: '#183A9E', borderRadius: 4 }] },
     options: {
-      responsive: true, maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 16 } },
       plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, title: { display: true, text: 'days' } } },
+      scales: {
+        y: { display: false, beginAtZero: true },
+        x: { grid: { display: false } },
+      },
     },
+    plugins: [dataLabelPlugin],
   });
 }
+
+document.getElementById('chartMetricToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-metric]');
+  if (!btn) return;
+  document.querySelectorAll('#chartMetricToggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  activeChartMetric = btn.dataset.metric;
+  renderMonthlyChart();
+});
 
 /* ---------------- Filters ---------------- */
 function uniqueValues(arr, key) { return [...new Set(arr.map(x => x[key]).filter(v => v !== '' && v !== null && v !== undefined))].sort(); }
@@ -482,16 +547,16 @@ function filterTalents() {
 
 // [label, width-in-px, extra-css-class]
 const JOB_COLS = [
-  ['Job ID', 62], ['Job Posted', 74], ['Job Title', 210, 'title-cell'], ['Status', 78],
-  ['Posted→Claimed', 88], ['Claimed→Sent', 88], ['Sent→Hire', 82], ['Posted→Hire', 82],
-  ['# AR Sent', 60], ['# Confirmed Apps', 70], ['# Talents Sent', 70],
+  ['Job ID', 56], ['Job Posted', 66], ['Job Title', 190, 'title-cell'], ['Status', 70],
+  ['Posted→Claimed', 80], ['Claimed→Sent', 80], ['Sent→Hire', 74], ['Posted→Hire', 74],
+  ['# AR Sent', 54], ['# Confirmed Apps', 62], ['# Talents Sent', 62],
 ];
 const TALENT_COLS = [
-  ['Job ID', 58], ['Job Posted', 72], ['Job Title', 150, 'title-cell'], ['Status', 72], ['Talent Name', 110],
-  ['Commitment', 68], ['Wkly Hrs', 48], ['Hrs Warn', 40], ['Onboarding', 44], ['ITOps', 40], ['Core Email', 44],
-  ['Topteam', 40], ['Correct Rpt', 44], ['% Used', 48], ['Budget', 40], ['55-Day Dec.', 76],
-  ['Decision', 168], ['Trial Warn', 40], ['Req?', 42], ['Job Closed', 44], ['Hrs Rmv', 40],
-  ['Email Rmv', 40], ['Topteam Rmv', 44], ['Offb. Warn', 44],
+  ['Job ID', 50], ['Job Posted', 64], ['Job Title', 140, 'title-cell'], ['Status', 64], ['Talent Name', 100],
+  ['Commitment', 60], ['Wkly Hrs', 42], ['Hrs Warn', 30], ['Onboarding', 32], ['ITOps', 32], ['Core Email', 32],
+  ['Topteam', 32], ['Correct Rpt', 32], ['% Used', 40], ['Budget', 30], ['55-Day Dec.', 66],
+  ['Decision', 150], ['Trial Warn', 30], ['Req?', 36], ['Job Closed', 34], ['Hrs Rmv', 30],
+  ['Email Rmv', 30], ['Topteam Rmv', 34], ['Offb. Warn', 34],
 ];
 
 function renderColgroupAndHead(cols) {
@@ -513,14 +578,14 @@ function renderTable() {
         <td>${esc(j.jobId)}</td>
         <td>${esc(j.postedDate)}</td>
         <td class="title-cell"><a class="job-link" href="${esc(j.jobLink)}" target="_blank" title="${esc(j.jobTitle)}">${esc(j.jobTitle)}</a></td>
-        <td>${esc(j.jobStatus)}</td>
-        <td>${flagBadge(talentFlagFor(j, 'postedToClaimed'), dayLabel(j, 'postedToClaimed'))}</td>
-        <td>${flagBadge(talentFlagFor(j, 'claimedToSent'), dayLabel(j, 'claimedToSent'))}</td>
-        <td>${flagBadge(talentFlagFor(j, 'sentToHire'), dayLabel(j, 'sentToHire'))}</td>
-        <td>${flagBadge(talentFlagFor(j, 'postedToHire'), dayLabel(j, 'postedToHire'))}</td>
-        <td>${j.arSent ?? '—'}</td>
-        <td>${j.confirmedApplications ?? '—'}</td>
-        <td>${j.talentsSent ?? '—'}</td>
+        <td class="center">${esc(j.jobStatus)}</td>
+        <td class="center">${flagBadge(talentFlagFor(j, 'postedToClaimed'), dayLabel(j, 'postedToClaimed'))}</td>
+        <td class="center">${flagBadge(talentFlagFor(j, 'claimedToSent'), dayLabel(j, 'claimedToSent'))}</td>
+        <td class="center">${flagBadge(talentFlagFor(j, 'sentToHire'), dayLabel(j, 'sentToHire'))}</td>
+        <td class="center">${flagBadge(talentFlagFor(j, 'postedToHire'), dayLabel(j, 'postedToHire'))}</td>
+        <td class="center">${j.arSent ?? '—'}</td>
+        <td class="center">${j.confirmedApplications ?? '—'}</td>
+        <td class="center">${j.talentsSent ?? '—'}</td>
       </tr>`).join('');
   } else {
     renderColgroupAndHead(TALENT_COLS);
@@ -535,17 +600,17 @@ function renderTable() {
         <td>${esc(t.jobStatus)}</td>
         <td>${esc(t.talentName)}</td>
         <td>${esc(t.commitmentType)}</td>
-        <td>${t.weeklyHours ?? '—'}</td>
+        <td class="center">${t.weeklyHours ?? '—'}</td>
         <td class="circle">${esc(t.hoursWarning)}</td>
         <td class="circle">${esc(t.onboardingStatus)}</td>
         <td class="circle">${esc(t.itopsTicketStatus)}</td>
         <td class="circle">${esc(t.coreEmailStatus)}</td>
         <td class="circle">${esc(t.topteamProfile)}</td>
         <td class="circle">${esc(t.correctReportTopteam)}</td>
-        <td>${t.pctUsed !== null ? t.pctUsed.toFixed(0) + '%' : '—'}</td>
+        <td class="center">${t.pctUsed !== null ? t.pctUsed.toFixed(0) + '%' : '—'}</td>
         <td class="circle">${esc(t.budgetStatus)}</td>
-        <td>${esc(t.decisionDate) || '—'}</td>
-        <td class="decision-cell">
+        <td class="center">${esc(t.decisionDate) || '—'}</td>
+        <td class="decision-cell center">
           <select class="decision-select" data-row-ref="${t.rowRef}">
             ${DECISION_OPTIONS.map(o => `<option value="${esc(o)}" ${o === t.decision ? 'selected' : ''}>${o || '(none)'}</option>`).join('')}
           </select>
@@ -553,7 +618,7 @@ function renderTable() {
           <span class="save-status" id="save-status-${t.rowRef}"></span>
         </td>
         <td class="circle">${esc(t.decisionWarning)}</td>
-        <td>${esc(t.required)}</td>
+        <td class="center">${esc(t.required)}</td>
         <td class="circle">${esc(t.jobClosedStatus)}</td>
         <td class="circle">${esc(t.hoursRemovedStatus)}</td>
         <td class="circle">${esc(t.coreEmailRemovedStatus)}</td>
