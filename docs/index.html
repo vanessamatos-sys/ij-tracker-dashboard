@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Internal Jobs Tracker</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
   :root {
     /* Toptal brand palette (matches vanessamatos-sys/tsp-macro-dashboard) */
@@ -16,6 +17,9 @@
     --accent-cyan: #09B6F9;
     --accent-blue: #183A9E;
 
+    --sla-color: #183A9E;      /* SLA section accent */
+    --overview-color: #0E6B48; /* Overview section accent */
+
     --good-bg: #E3F6ED;  --good-text: #0E6B48;
     --bad-bg: #FBE9E7;   --bad-text: #C0392B;
     --flat-bg: #EBECED;  --flat-text: #49526A;
@@ -25,59 +29,68 @@
   * { box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    margin: 0; padding: 0 0 40px; background: var(--surface-page); color: var(--ink);
-    font-size: 13px;
+    margin: 0; padding: 0 0 24px; background: var(--surface-page); color: var(--ink);
+    font-size: 12.5px;
   }
   .titlebar {
-    background: linear-gradient(120deg, var(--ink) 0%, var(--accent-blue) 100%);
-    color: #fff; padding: 16px 28px; text-align: center;
+    background: var(--ink);
+    color: #fff; padding: 12px 28px; text-align: center;
   }
-  .titlebar h1 { margin: 0 0 3px; font-size: 18px; letter-spacing: .03em; }
-  .titlebar .sub { font-size: 11.5px; color: var(--tint); }
+  .titlebar h1 { margin: 0 0 2px; font-size: 16px; letter-spacing: .03em; }
+  .titlebar .sub { font-size: 11px; color: var(--tint); }
 
-  .wrap { max-width: 1500px; margin: 0 auto; padding: 0 18px; }
+  .wrap { max-width: 1600px; margin: 0 auto; padding: 0 16px; }
 
   /* ---------- KPI section ---------- */
-  .kpi-controls { display: flex; align-items: center; gap: 10px; margin: 18px 0 10px; flex-wrap: wrap; }
-  .kpi-controls select, .kpi-controls button {
-    font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid #ccd0d8;
+  .kpi-controls { display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; flex-wrap: wrap; }
+  .kpi-controls select, .kpi-controls input, .kpi-controls button {
+    font: inherit; padding: 5px 9px; border-radius: 6px; border: 1px solid #ccd0d8;
     background: #fff; color: var(--ink); cursor: pointer;
   }
-  .kpi-controls button.primary { background: var(--accent-blue); color: #fff; border-color: var(--accent-blue); }
-  .kpi-note { font-size: 11px; color: var(--ink-secondary); }
+  .kpi-note { font-size: 10.5px; color: var(--ink-secondary); }
+  .date-range { display: none; align-items: center; gap: 6px; }
+  .date-range.active { display: flex; }
 
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 22px; }
+  .kpi-section-title {
+    display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    color: #fff; padding: 3px 11px; border-radius: 5px; margin: 12px 0 8px;
+  }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin-bottom: 14px; }
   .card {
-    background: var(--surface-card); border-radius: 8px; padding: 10px 12px;
-    border-top: 3px solid var(--accent-blue);
+    background: var(--surface-card); border-radius: 8px; padding: 8px 10px;
+    border-top: 3px solid var(--cat-color, var(--ink));
     box-shadow: 0 1px 4px rgba(15,37,110,.08);
   }
   .card .kpi-name {
-    font-size: 10.5px; font-weight: 800; color: var(--accent-blue); margin-bottom: 5px;
-    min-height: 28px; line-height: 1.25; text-transform: uppercase; letter-spacing: .02em;
+    font-size: 10px; font-weight: 800; color: var(--cat-color, var(--ink)); margin-bottom: 4px;
+    min-height: 24px; line-height: 1.2; text-transform: uppercase; letter-spacing: .02em;
   }
-  .card .value-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-  .card .value { font-size: 22px; font-weight: 800; color: var(--ink); }
-  .card .growth { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+  .card .value-row { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+  .card .value { font-size: 19px; font-weight: 800; color: var(--ink); }
+  .card .growth { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 10px; white-space: nowrap; }
   .growth.good { background: var(--good-bg); color: var(--good-text); }
   .growth.bad  { background: var(--bad-bg);  color: var(--bad-text); }
   .growth.flat { background: var(--flat-bg); color: var(--flat-text); }
-  .card .prior { font-size: 9.5px; color: #8890a0; margin-top: 3px; }
+  .card .prior { font-size: 9px; color: #8890a0; margin-top: 2px; }
+
+  .chart-card { background: var(--surface-card); border-radius: 8px; padding: 10px 14px; box-shadow: 0 1px 4px rgba(15,37,110,.08); margin-bottom: 16px; }
+  .chart-card h3 { margin: 0 0 6px; font-size: 11.5px; color: var(--sla-color); text-transform: uppercase; letter-spacing: .03em; }
+  .chart-wrap { height: 190px; }
 
   /* ---------- View toggle ---------- */
-  .view-toggle { display: flex; gap: 6px; margin: 22px 0 12px; }
+  .view-toggle { display: flex; gap: 6px; margin: 14px 0 10px; }
   .view-toggle button {
-    font: inherit; font-weight: 700; padding: 8px 16px; border-radius: 999px; border: 1px solid #ccd0d8;
-    background: #fff; color: var(--ink-secondary); cursor: pointer;
+    font: inherit; font-weight: 700; padding: 6px 14px; border-radius: 999px; border: 1px solid #ccd0d8;
+    background: #fff; color: var(--ink-secondary); cursor: pointer; font-size: 12px;
   }
   .view-toggle button.active { background: var(--accent-blue); color: #fff; border-color: var(--accent-blue); }
 
   /* ---------- Filters (pill style, not spreadsheet-like) ---------- */
-  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .filters { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
   .filter-group { position: relative; }
   .filter-btn {
-    font: inherit; padding: 6px 12px; border-radius: 999px; border: 1px solid #ccd0d8;
-    background: #fff; color: var(--ink); cursor: pointer; font-size: 12px;
+    font: inherit; padding: 5px 11px; border-radius: 999px; border: 1px solid #ccd0d8;
+    background: #fff; color: var(--ink); cursor: pointer; font-size: 11.5px;
   }
   .filter-btn.has-value { border-color: var(--accent-blue); color: var(--accent-blue); font-weight: 700; }
   .filter-menu {
@@ -88,36 +101,38 @@
   .filter-menu.open { display: block; }
   .filter-menu label { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px; cursor: pointer; font-size: 12px; }
   .filter-menu label:hover { background: var(--surface-page); }
-  .reset-btn { font: inherit; padding: 6px 12px; border-radius: 999px; border: 1px solid transparent; background: transparent; color: var(--ink-secondary); cursor: pointer; font-size: 12px; text-decoration: underline; }
-  .sort-select { font: inherit; padding: 6px 10px; border-radius: 999px; border: 1px solid #ccd0d8; background: #fff; margin-left: auto; }
-  .result-count { font-size: 11px; color: var(--ink-secondary); margin-bottom: 8px; }
+  .reset-btn { font: inherit; padding: 5px 11px; border-radius: 999px; border: 1px solid transparent; background: transparent; color: var(--ink-secondary); cursor: pointer; font-size: 11.5px; text-decoration: underline; }
+  .sort-select { font: inherit; padding: 5px 9px; border-radius: 999px; border: 1px solid #ccd0d8; background: #fff; margin-left: auto; font-size: 11.5px; }
+  .result-count { font-size: 10.5px; color: var(--ink-secondary); margin-bottom: 6px; }
 
   /* ---------- Table ---------- */
-  .table-scroll { overflow-x: auto; background: var(--surface-card); border-radius: 8px; box-shadow: 0 1px 4px rgba(15,37,110,.08); }
-  table { border-collapse: collapse; width: 100%; white-space: nowrap; }
-  th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid #eef0f2; font-size: 12px; }
-  th { position: sticky; top: 0; background: var(--ink); color: #fff; font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .02em; z-index: 5; }
+  .table-scroll { overflow: auto; max-height: 58vh; background: var(--surface-card); border-radius: 8px; box-shadow: 0 1px 4px rgba(15,37,110,.08); }
+  table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  th, td { padding: 5px 7px; text-align: left; border-bottom: 1px solid #eef0f2; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--ink); color: #fff; font-weight: 700; font-size: 9.5px; text-transform: uppercase; letter-spacing: .02em; z-index: 5; }
   tr.hp-row td { background: var(--hp-row); }
   tr:hover td { background: #F5F8FF; }
   tr.hp-row:hover td { background: #E8ECFA; }
   a.job-link { color: var(--accent-blue); text-decoration: none; }
   a.job-link:hover { text-decoration: underline; }
+  td.title-cell, th.title-cell { max-width: 0; } /* forces ellipsis to respect colgroup width */
 
-  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 999px; font-weight: 700; font-size: 11px; }
+  .badge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 999px; font-weight: 700; font-size: 10.5px; }
   .badge.g { background: var(--good-bg); color: var(--good-text); }
   .badge.y { background: #FFF6DD; color: #8a6d00; }
   .badge.r { background: var(--bad-bg); color: var(--bad-text); }
   .badge.n { background: var(--flat-bg); color: var(--flat-text); }
 
-  .circle { font-size: 13px; }
+  .circle { text-align: center; font-size: 12px; }
 
-  select.decision-select { font: inherit; font-size: 12px; padding: 3px 6px; border-radius: 5px; border: 1px solid #ccd0d8; }
-  .save-btn { font: inherit; font-size: 11px; padding: 3px 9px; border-radius: 5px; border: none; background: var(--accent-cyan); color: #fff; cursor: pointer; margin-left: 4px; }
+  select.decision-select { font: inherit; font-size: 11px; padding: 2px 4px; border-radius: 5px; border: 1px solid #ccd0d8; max-width: 100px; }
+  .save-btn { font: inherit; font-size: 10px; padding: 2px 7px; border-radius: 5px; border: none; background: var(--accent-cyan); color: #fff; cursor: pointer; margin-left: 3px; }
   .save-btn:disabled { background: #ccd0d8; cursor: default; }
-  .save-status { font-size: 10.5px; margin-left: 6px; color: var(--ink-secondary); }
+  .save-status { font-size: 9.5px; margin-left: 4px; color: var(--ink-secondary); }
+  td.decision-cell { overflow: visible; white-space: nowrap; }
 
-  .hp-legend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-secondary); margin-bottom: 10px; }
-  .hp-swatch { width: 14px; height: 14px; border-radius: 3px; background: var(--hp-row); border: 1px solid #ccc; }
+  .hp-legend { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--ink-secondary); margin-bottom: 8px; }
+  .hp-swatch { width: 13px; height: 13px; border-radius: 3px; background: var(--hp-row); border: 1px solid #ccc; }
 </style>
 </head>
 <body>
@@ -139,10 +154,25 @@
       <option value="3">Last 3 months</option>
       <option value="6">Last 6 months</option>
       <option value="12">Last 12 months</option>
+      <option value="custom">Custom date range…</option>
     </select>
+    <div class="date-range" id="dateRangeInputs">
+      <input type="date" id="rangeFrom"> <span class="kpi-note">to</span> <input type="date" id="rangeTo">
+      <button id="applyRange" class="kpi-note" style="cursor:pointer;">Apply</button>
+    </div>
     <span class="kpi-note" id="periodLabel"></span>
   </div>
-  <div class="cards" id="kpiCards"></div>
+
+  <div class="kpi-section-title" style="background:var(--sla-color)">SLA</div>
+  <div class="cards" id="kpiCardsSla"></div>
+
+  <div class="kpi-section-title" style="background:var(--overview-color)">Overview</div>
+  <div class="cards" id="kpiCardsOverview"></div>
+
+  <div class="chart-card">
+    <h3>Posted → Hire, median days by month</h3>
+    <div class="chart-wrap"><canvas id="monthlyChart"></canvas></div>
+  </div>
 
   <!-- ============ VIEW TOGGLE ============ -->
   <div class="view-toggle">
@@ -156,7 +186,8 @@
   <div class="result-count" id="resultCount"></div>
 
   <div class="table-scroll">
-    <table>
+    <table id="dataTable">
+      <colgroup id="colGroup"></colgroup>
       <thead><tr id="tableHead"></tr></thead>
       <tbody id="tableBody"></tbody>
     </table>
@@ -168,14 +199,16 @@
 const GOOGLE_CLIENT_ID = '57381868856-6d471oasl438l33mg468jbg6o2e3fa7n.apps.googleusercontent.com';
 const SHEET_ID = '1n1aqgvOnbdwxJXPzNpe-AMa2mzKBtMeE4q5exXN1rwo';
 const DECISION_OPTIONS = ['', 'Core Offer', 'Termination as Talent', 'Extending as Talent'];
+const OPEN_STATUSES = ['PENDING_ENGINEER', 'POSTPONED'];
 
 let DATA = null;
 let activeView = 'job';
 let accessToken = null;
 let tokenClient = null;
+let monthlyChart = null;
 
-const jobFilterState = { jobStatus: new Set(), pcFlag: new Set(), csFlag: new Set(), shFlag: new Set(), phFlag: new Set() };
-const talentFilterState = { jobStatus: new Set(), onboarding: new Set(), budget: new Set(), trial: new Set(), offboarding: new Set() };
+const jobFilterState = { jobStatus: new Set(['ACTIVE']), pcFlag: new Set(), csFlag: new Set(), shFlag: new Set(), phFlag: new Set() };
+const talentFilterState = { jobStatus: new Set(['ACTIVE']), onboarding: new Set(), budget: new Set(), trial: new Set(), offboarding: new Set() };
 let jobSort = { key: 'postedDate', dir: 'desc' };
 let talentSort = { key: 'postedDate', dir: 'desc' };
 
@@ -189,8 +222,13 @@ function flagBadge(flag, text) {
 /* ---------------- KPI computation ---------------- */
 function periodBounds(rangeVal) {
   const now = new Date();
-  let start, end, days;
-  if (rangeVal === 'current-month') {
+  let start, end;
+  if (rangeVal === 'custom') {
+    const fromVal = document.getElementById('rangeFrom').value;
+    const toVal = document.getElementById('rangeTo').value;
+    start = fromVal ? new Date(fromVal + 'T00:00:00') : new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    end = toVal ? new Date(new Date(toVal + 'T00:00:00').getTime() + 86400000) : now;
+  } else if (rangeVal === 'current-month') {
     start = new Date(now.getFullYear(), now.getMonth(), 1);
     end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   } else {
@@ -198,7 +236,7 @@ function periodBounds(rangeVal) {
     end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     start = new Date(now.getFullYear(), now.getMonth() + 1 - months, 1);
   }
-  days = Math.round((end - start) / 86400000);
+  const days = Math.round((end - start) / 86400000);
   const prevEnd = start;
   const prevStart = new Date(start.getTime() - days * 86400000);
   return { start, end, prevStart, prevEnd };
@@ -210,21 +248,38 @@ function inRange(dateStr, start, end) {
   return d >= start && d < end;
 }
 
-function avg(arr) { const v = arr.filter(x => x !== null && x !== undefined); return v.length ? v.reduce((a,b)=>a+b,0) / v.length : null; }
+function median(arr) {
+  const v = arr.filter(x => x !== null && x !== undefined).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const mid = Math.floor(v.length / 2);
+  return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+}
 
-function computeKpis(jobs, start, end) {
-  const inP = jobs.filter(j => inRange(j.postedDate, start, end));
+function computeSlaKpis(start, end) {
   const talentsInP = DATA.talents.filter(t => inRange(t.postedDate, start, end));
-  const approved = talentsInP.reduce((s,t)=> s + (t.budgetApproved||0), 0);
-  const used = talentsInP.reduce((s,t)=> s + (t.budgetUsed||0), 0);
   return {
-    postedToClaimed: avg(talentsInP.map(t=>t.postedToClaimedDays)),
-    claimedToSent: avg(talentsInP.map(t=>t.claimedToSentDays)),
-    sentToHire: avg(talentsInP.map(t=>t.sentToHireDays)),
-    postedToHire: avg(talentsInP.map(t=>t.postedToHireDays)),
-    pctUsed: approved > 0 ? (used/approved*100) : null,
-    totalIJ: inP.length,
-    activeIJ: inP.filter(j => j.jobStatus === 'ACTIVE').length,
+    postedToClaimed: median(talentsInP.map(t => t.postedToClaimedDays)),
+    claimedToSent: median(talentsInP.map(t => t.claimedToSentDays)),
+    sentToHire: median(talentsInP.map(t => t.sentToHireDays)),
+    postedToHire: median(talentsInP.map(t => t.postedToHireDays)),
+  };
+}
+
+function computeOverviewKpis(start, end) {
+  const inP = DATA.jobs.filter(j => inRange(j.postedDate, start, end));
+  const talentsInP = DATA.talents.filter(t => inRange(t.postedDate, start, end));
+  // Only jobs with an actual Used figure recorded — many have Approved but no
+  // spend posted yet, and including those in the denominator understates % used.
+  const withUsage = talentsInP.filter(t => t.budgetUsed !== null);
+  const approved = withUsage.reduce((s, t) => s + (t.budgetApproved || 0), 0);
+  const used = withUsage.reduce((s, t) => s + (t.budgetUsed || 0), 0);
+  return {
+    total: inP.length,
+    active: inP.filter(j => j.jobStatus === 'ACTIVE').length,
+    open: inP.filter(j => OPEN_STATUSES.includes(j.jobStatus)).length,
+    closed: inP.filter(j => j.jobStatus === 'CLOSED').length,
+    removed: inP.filter(j => j.jobStatus === 'REMOVED').length,
+    pctUsed: approved > 0 ? (used / approved * 100) : null,
   };
 }
 
@@ -232,14 +287,15 @@ function growthBadge(current, prior, lowerIsBetter) {
   if (current === null || prior === null || prior === 0) return '<span class="growth flat">n/a</span>';
   const pct = ((current - prior) / Math.abs(prior)) * 100;
   const up = pct >= 0;
-  const good = lowerIsBetter ? !up : up;
-  const cls = Math.abs(pct) < 0.5 ? 'flat' : (good ? 'good' : 'bad');
+  const good = lowerIsBetter === null ? null : (lowerIsBetter ? !up : up);
+  const cls = Math.abs(pct) < 0.5 ? 'flat' : (good === null ? 'flat' : (good ? 'good' : 'bad'));
   const arrow = up ? '↑' : '↓';
   return `<span class="growth ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
 }
 
 function fmtDays(v) { return v === null ? '—' : v.toFixed(1) + 'd'; }
 function fmtPct(v) { return v === null ? '—' : v.toFixed(1) + '%'; }
+function fmtNum(v) { return v === null ? '—' : v; }
 
 function renderKpis() {
   const rangeVal = document.getElementById('rangeSelect').value;
@@ -247,30 +303,74 @@ function renderKpis() {
   document.getElementById('periodLabel').textContent =
     `${start.toISOString().slice(0,10)} → ${new Date(end - 1).toISOString().slice(0,10)} vs. prior equal-length period`;
 
-  const cur = computeKpis(DATA.jobs, start, end);
-  const prior = computeKpis(DATA.jobs, prevStart, prevEnd);
+  const curSla = computeSlaKpis(start, end);
+  const priorSla = computeSlaKpis(prevStart, prevEnd);
+  const curOv = computeOverviewKpis(start, end);
+  const priorOv = computeOverviewKpis(prevStart, prevEnd);
 
-  const cards = [
-    { name: 'Posted → Claimed', value: fmtDays(cur.postedToClaimed), g: growthBadge(cur.postedToClaimed, prior.postedToClaimed, true), prior: fmtDays(prior.postedToClaimed) },
-    { name: 'Claimed → Sent', value: fmtDays(cur.claimedToSent), g: growthBadge(cur.claimedToSent, prior.claimedToSent, true), prior: fmtDays(prior.claimedToSent) },
-    { name: 'Sent → Hire', value: fmtDays(cur.sentToHire), g: growthBadge(cur.sentToHire, prior.sentToHire, true), prior: fmtDays(prior.sentToHire) },
-    { name: 'Posted → Hire', value: fmtDays(cur.postedToHire), g: growthBadge(cur.postedToHire, prior.postedToHire, true), prior: fmtDays(prior.postedToHire) },
-    { name: '% Budget Used', value: fmtPct(cur.pctUsed), g: growthBadge(cur.pctUsed, prior.pctUsed, true), prior: fmtPct(prior.pctUsed) },
-    { name: 'Total IJ → Active IJ', value: `${cur.totalIJ} → ${cur.activeIJ}`, g: growthBadge(cur.totalIJ, prior.totalIJ, false), prior: `${prior.totalIJ} → ${prior.activeIJ}` },
+  const slaCards = [
+    { name: 'Posted → Claimed', value: fmtDays(curSla.postedToClaimed), g: growthBadge(curSla.postedToClaimed, priorSla.postedToClaimed, true), prior: fmtDays(priorSla.postedToClaimed) },
+    { name: 'Claimed → Sent', value: fmtDays(curSla.claimedToSent), g: growthBadge(curSla.claimedToSent, priorSla.claimedToSent, true), prior: fmtDays(priorSla.claimedToSent) },
+    { name: 'Sent → Hire', value: fmtDays(curSla.sentToHire), g: growthBadge(curSla.sentToHire, priorSla.sentToHire, true), prior: fmtDays(priorSla.sentToHire) },
+    { name: 'Posted → Hire', value: fmtDays(curSla.postedToHire), g: growthBadge(curSla.postedToHire, priorSla.postedToHire, true), prior: fmtDays(priorSla.postedToHire) },
   ];
+  document.getElementById('kpiCardsSla').innerHTML = slaCards.map(c => `
+    <div class="card" style="--cat-color:var(--sla-color)">
+      <div class="kpi-name">${c.name}</div>
+      <div class="value-row"><span class="value">${c.value}</span>${c.g}</div>
+      <div class="prior">Prior period: ${c.prior} · median</div>
+    </div>`).join('');
 
-  document.getElementById('kpiCards').innerHTML = cards.map(c => `
-    <div class="card">
+  const ovCards = [
+    { name: 'Total Jobs', value: fmtNum(curOv.total), g: growthBadge(curOv.total, priorOv.total, null), prior: fmtNum(priorOv.total) },
+    { name: 'Active Jobs', value: fmtNum(curOv.active), g: growthBadge(curOv.active, priorOv.active, null), prior: fmtNum(priorOv.active) },
+    { name: 'Open Jobs', value: fmtNum(curOv.open), g: growthBadge(curOv.open, priorOv.open, null), prior: fmtNum(priorOv.open) },
+    { name: 'Closed Jobs', value: fmtNum(curOv.closed), g: growthBadge(curOv.closed, priorOv.closed, null), prior: fmtNum(priorOv.closed) },
+    { name: 'Removed Jobs', value: fmtNum(curOv.removed), g: growthBadge(curOv.removed, priorOv.removed, null), prior: fmtNum(priorOv.removed) },
+    { name: '% Budget Used', value: fmtPct(curOv.pctUsed), g: growthBadge(curOv.pctUsed, priorOv.pctUsed, true), prior: fmtPct(priorOv.pctUsed) },
+  ];
+  document.getElementById('kpiCardsOverview').innerHTML = ovCards.map(c => `
+    <div class="card" style="--cat-color:var(--overview-color)">
       <div class="kpi-name">${c.name}</div>
       <div class="value-row"><span class="value">${c.value}</span>${c.g}</div>
       <div class="prior">Prior period: ${c.prior}</div>
     </div>`).join('');
+
+  renderMonthlyChart(start, end);
+}
+
+function renderMonthlyChart(start, end) {
+  const months = [];
+  let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  const endCap = new Date(end.getFullYear(), end.getMonth(), 1);
+  while (cursor <= endCap) {
+    months.push(new Date(cursor));
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  }
+  const labels = months.map(m => m.toLocaleString('default', { month: 'short', year: '2-digit' }));
+  const values = months.map(m => {
+    const mEnd = new Date(m.getFullYear(), m.getMonth() + 1, 1);
+    const inMonth = DATA.talents.filter(t => inRange(t.postedDate, m, mEnd));
+    return median(inMonth.map(t => t.postedToHireDays));
+  });
+
+  const ctx = document.getElementById('monthlyChart');
+  if (monthlyChart) monthlyChart.destroy();
+  monthlyChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Median Posted→Hire (days)', data: values, backgroundColor: '#183A9E', borderRadius: 4 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, title: { display: true, text: 'days' } } },
+    },
+  });
 }
 
 /* ---------------- Filters ---------------- */
 function uniqueValues(arr, key) { return [...new Set(arr.map(x => x[key]).filter(v => v !== '' && v !== null && v !== undefined))].sort(); }
 
-function buildFilterGroup(id, label, options, stateSet, onChange) {
+function buildFilterGroup(id, label, options, stateSet) {
   const active = stateSet.size > 0;
   return `
     <div class="filter-group">
@@ -284,10 +384,8 @@ function buildFilterGroup(id, label, options, stateSet, onChange) {
 function renderFilterBar() {
   const bar = document.getElementById('filterBar');
   if (activeView === 'job') {
-    bar.innerHTML = [
-      buildFilterGroup('jobStatus', 'Job Status', uniqueValues(DATA.jobs, 'jobStatus'), jobFilterState.jobStatus),
-      '<span style="width:1px;background:#ccd0d8;align-self:stretch;"></span>',
-    ].join('') +
+    bar.innerHTML =
+      buildFilterGroup('jobStatus', 'Job Status', uniqueValues(DATA.jobs, 'jobStatus'), jobFilterState.jobStatus) +
       buildFilterGroup('pcFlag', 'Posted→Claimed Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.pcFlag) +
       buildFilterGroup('csFlag', 'Claimed→Sent Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.csFlag) +
       buildFilterGroup('shFlag', 'Sent→Hire Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.shFlag) +
@@ -382,16 +480,31 @@ function filterTalents() {
   );
 }
 
-const JOB_HEAD = ['Job ID','Job Posted','Job Title','Status','Posted→Claimed','Claimed→Sent','Sent→Hire','Posted→Hire','# AR Sent','# Confirmed Apps','# Talents Sent'];
-const TALENT_HEAD = ['Job ID','Job Posted','Job Title','Status','Talent Name','Commitment','Wkly Hrs','Hrs Warning','Onboarding','ITOps Ticket','Core Email','Topteam','Correct Report','% Used','Budget Status','55-Day Decision','Decision','Trial Warning','Required?','Job Closed','Hrs Removed','Email Removed','Topteam Removed','Offboard Warning'];
+// [label, width-in-px, extra-css-class]
+const JOB_COLS = [
+  ['Job ID', 62], ['Job Posted', 74], ['Job Title', 210, 'title-cell'], ['Status', 78],
+  ['Posted→Claimed', 88], ['Claimed→Sent', 88], ['Sent→Hire', 82], ['Posted→Hire', 82],
+  ['# AR Sent', 60], ['# Confirmed Apps', 70], ['# Talents Sent', 70],
+];
+const TALENT_COLS = [
+  ['Job ID', 58], ['Job Posted', 72], ['Job Title', 150, 'title-cell'], ['Status', 72], ['Talent Name', 110],
+  ['Commitment', 68], ['Wkly Hrs', 48], ['Hrs Warn', 40], ['Onboarding', 44], ['ITOps', 40], ['Core Email', 44],
+  ['Topteam', 40], ['Correct Rpt', 44], ['% Used', 48], ['Budget', 40], ['55-Day Dec.', 76],
+  ['Decision', 168], ['Trial Warn', 40], ['Req?', 42], ['Job Closed', 44], ['Hrs Rmv', 40],
+  ['Email Rmv', 40], ['Topteam Rmv', 44], ['Offb. Warn', 44],
+];
+
+function renderColgroupAndHead(cols) {
+  document.getElementById('colGroup').innerHTML = cols.map(c => `<col style="width:${c[1]}px">`).join('');
+  document.getElementById('tableHead').innerHTML = cols.map(c => `<th class="${c[2]||''}" title="${esc(c[0])}">${esc(c[0])}</th>`).join('');
+}
 
 function renderTable() {
-  const head = document.getElementById('tableHead');
   const body = document.getElementById('tableBody');
   const countEl = document.getElementById('resultCount');
 
   if (activeView === 'job') {
-    head.innerHTML = JOB_HEAD.map(h => `<th>${h}</th>`).join('');
+    renderColgroupAndHead(JOB_COLS);
     let rows = applySort(filterJobs(), jobSort);
     rows.sort((a,b) => (b.isHP - a.isHP)); // HP jobs float to top within sort
     countEl.textContent = `${rows.length} of ${DATA.jobs.length} jobs`;
@@ -399,7 +512,7 @@ function renderTable() {
       <tr class="${j.isHP ? 'hp-row' : ''}">
         <td>${esc(j.jobId)}</td>
         <td>${esc(j.postedDate)}</td>
-        <td><a class="job-link" href="${esc(j.jobLink)}" target="_blank">${esc(j.jobTitle)}</a></td>
+        <td class="title-cell"><a class="job-link" href="${esc(j.jobLink)}" target="_blank" title="${esc(j.jobTitle)}">${esc(j.jobTitle)}</a></td>
         <td>${esc(j.jobStatus)}</td>
         <td>${flagBadge(talentFlagFor(j, 'postedToClaimed'), dayLabel(j, 'postedToClaimed'))}</td>
         <td>${flagBadge(talentFlagFor(j, 'claimedToSent'), dayLabel(j, 'claimedToSent'))}</td>
@@ -410,7 +523,7 @@ function renderTable() {
         <td>${j.talentsSent ?? '—'}</td>
       </tr>`).join('');
   } else {
-    head.innerHTML = TALENT_HEAD.map(h => `<th>${h}</th>`).join('');
+    renderColgroupAndHead(TALENT_COLS);
     let rows = applySort(filterTalents(), talentSort);
     rows.sort((a,b) => (b.isHP - a.isHP));
     countEl.textContent = `${rows.length} of ${DATA.talents.length} talents`;
@@ -418,7 +531,7 @@ function renderTable() {
       <tr class="${t.isHP ? 'hp-row' : ''}" data-row-ref="${t.rowRef}">
         <td>${esc(t.jobId)}</td>
         <td>${esc(t.postedDate)}</td>
-        <td><a class="job-link" href="${esc(t.jobLink)}" target="_blank">${esc(t.jobTitle)}</a></td>
+        <td class="title-cell" title="${esc(t.jobTitle)}"><a class="job-link" href="${esc(t.jobLink)}" target="_blank">${esc(t.jobTitle)}</a></td>
         <td>${esc(t.jobStatus)}</td>
         <td>${esc(t.talentName)}</td>
         <td>${esc(t.commitmentType)}</td>
@@ -432,7 +545,7 @@ function renderTable() {
         <td>${t.pctUsed !== null ? t.pctUsed.toFixed(0) + '%' : '—'}</td>
         <td class="circle">${esc(t.budgetStatus)}</td>
         <td>${esc(t.decisionDate) || '—'}</td>
-        <td>
+        <td class="decision-cell">
           <select class="decision-select" data-row-ref="${t.rowRef}">
             ${DECISION_OPTIONS.map(o => `<option value="${esc(o)}" ${o === t.decision ? 'selected' : ''}>${o || '(none)'}</option>`).join('')}
           </select>
@@ -549,7 +662,12 @@ async function saveDecision(rowRef) {
 /* ---------------- Init ---------------- */
 document.getElementById('tabJob').addEventListener('click', () => { activeView = 'job'; document.getElementById('tabJob').classList.add('active'); document.getElementById('tabTalent').classList.remove('active'); renderFilterBar(); renderTable(); });
 document.getElementById('tabTalent').addEventListener('click', () => { activeView = 'talent'; document.getElementById('tabTalent').classList.add('active'); document.getElementById('tabJob').classList.remove('active'); renderFilterBar(); renderTable(); });
-document.getElementById('rangeSelect').addEventListener('change', renderKpis);
+document.getElementById('rangeSelect').addEventListener('change', () => {
+  const isCustom = document.getElementById('rangeSelect').value === 'custom';
+  document.getElementById('dateRangeInputs').classList.toggle('active', isCustom);
+  if (!isCustom) renderKpis();
+});
+document.getElementById('applyRange').addEventListener('click', renderKpis);
 
 async function init() {
   const res = await fetch('data/tracker-data.json');
