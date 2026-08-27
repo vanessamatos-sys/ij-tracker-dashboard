@@ -65,7 +65,8 @@ async function fetchRange(token, range) {
 
 function num(v) {
   if (v === undefined || v === null || v === '') return null;
-  const n = Number(v);
+  // Budget columns render as currency strings (e.g. "$145,600"); strip formatting before parsing.
+  const n = Number(String(v).replace(/[$,%]/g, ''));
   return Number.isFinite(n) ? n : null;
 }
 
