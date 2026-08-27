@@ -342,11 +342,11 @@ function renderKpis() {
     </div>`).join('');
 
   const ovCards = [
-    { name: 'Total Jobs', value: fmtNum(curOv.total), g: growthBadge(curOv.total, priorOv.total, null), prior: fmtNum(priorOv.total) },
-    { name: 'Active Jobs', value: fmtNum(curOv.active), g: growthBadge(curOv.active, priorOv.active, null), prior: fmtNum(priorOv.active) },
-    { name: 'Open Jobs', value: fmtNum(curOv.open), g: growthBadge(curOv.open, priorOv.open, null), prior: fmtNum(priorOv.open) },
-    { name: 'Closed Jobs', value: fmtNum(curOv.closed), g: growthBadge(curOv.closed, priorOv.closed, null), prior: fmtNum(priorOv.closed) },
-    { name: 'Removed Jobs', value: fmtNum(curOv.removed), g: growthBadge(curOv.removed, priorOv.removed, null), prior: fmtNum(priorOv.removed) },
+    { name: 'Total Jobs', value: fmtNum(curOv.total), g: growthBadge(curOv.total, priorOv.total, false), prior: fmtNum(priorOv.total) },
+    { name: 'Active Jobs', value: fmtNum(curOv.active), g: growthBadge(curOv.active, priorOv.active, false), prior: fmtNum(priorOv.active) },
+    { name: 'Open Jobs', value: fmtNum(curOv.open), g: growthBadge(curOv.open, priorOv.open, false), prior: fmtNum(priorOv.open) },
+    { name: 'Closed Jobs', value: fmtNum(curOv.closed), g: growthBadge(curOv.closed, priorOv.closed, false), prior: fmtNum(priorOv.closed) },
+    { name: 'Removed Jobs', value: fmtNum(curOv.removed), g: growthBadge(curOv.removed, priorOv.removed, true), prior: fmtNum(priorOv.removed) },
     { name: '% Budget Used', value: fmtPct(curOv.pctUsed), g: growthBadge(curOv.pctUsed, priorOv.pctUsed, true), prior: fmtPct(priorOv.pctUsed) },
   ];
   document.getElementById('kpiCardsOverview').innerHTML = ovCards.map(c => `
