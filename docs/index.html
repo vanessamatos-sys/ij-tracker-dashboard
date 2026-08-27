@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Internal Jobs Tracker</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root {
+    /* Toptal brand palette (matches vanessamatos-sys/tsp-macro-dashboard) */
+    --ink: #262D3D;
+    --ink-secondary: #49526A;
+    --surface-page: #EBECED;
+    --surface-card: #ffffff;
+    --tint: #B6D8FF;
+    --accent-cyan: #09B6F9;
+    --accent-blue: #183A9E;
+
+    --good-bg: #E3F6ED;  --good-text: #0E6B48;
+    --bad-bg: #FBE9E7;   --bad-text: #C0392B;
+    --flat-bg: #EBECED;  --flat-text: #49526A;
+
+    --hp-row: #F0F1F2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0; padding: 0 0 40px; background: var(--surface-page); color: var(--ink);
+    font-size: 13px;
+  }
+  .titlebar {
+    background: linear-gradient(120deg, var(--ink) 0%, var(--accent-blue) 100%);
+    color: #fff; padding: 16px 28px; text-align: center;
+  }
+  .titlebar h1 { margin: 0 0 3px; font-size: 18px; letter-spacing: .03em; }
+  .titlebar .sub { font-size: 11.5px; color: var(--tint); }
+
+  .wrap { max-width: 1500px; margin: 0 auto; padding: 0 18px; }
+
+  /* ---------- KPI section ---------- */
+  .kpi-controls { display: flex; align-items: center; gap: 10px; margin: 18px 0 10px; flex-wrap: wrap; }
+  .kpi-controls select, .kpi-controls button {
+    font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid #ccd0d8;
+    background: #fff; color: var(--ink); cursor: pointer;
+  }
+  .kpi-controls button.primary { background: var(--accent-blue); color: #fff; border-color: var(--accent-blue); }
+  .kpi-note { font-size: 11px; color: var(--ink-secondary); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 22px; }
+  .card {
+    background: var(--surface-card); border-radius: 8px; padding: 10px 12px;
+    border-top: 3px solid var(--accent-blue);
+    box-shadow: 0 1px 4px rgba(15,37,110,.08);
+  }
+  .card .kpi-name {
+    font-size: 10.5px; font-weight: 800; color: var(--accent-blue); margin-bottom: 5px;
+    min-height: 28px; line-height: 1.25; text-transform: uppercase; letter-spacing: .02em;
+  }
+  .card .value-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .card .value { font-size: 22px; font-weight: 800; color: var(--ink); }
+  .card .growth { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+  .growth.good { background: var(--good-bg); color: var(--good-text); }
+  .growth.bad  { background: var(--bad-bg);  color: var(--bad-text); }
+  .growth.flat { background: var(--flat-bg); color: var(--flat-text); }
+  .card .prior { font-size: 9.5px; color: #8890a0; margin-top: 3px; }
+
+  /* ---------- View toggle ---------- */
+  .view-toggle { display: flex; gap: 6px; margin: 22px 0 12px; }
+  .view-toggle button {
+    font: inherit; font-weight: 700; padding: 8px 16px; border-radius: 999px; border: 1px solid #ccd0d8;
+    background: #fff; color: var(--ink-secondary); cursor: pointer;
+  }
+  .view-toggle button.active { background: var(--accent-blue); color: #fff; border-color: var(--accent-blue); }
+
+  /* ---------- Filters (pill style, not spreadsheet-like) ---------- */
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .filter-group { position: relative; }
+  .filter-btn {
+    font: inherit; padding: 6px 12px; border-radius: 999px; border: 1px solid #ccd0d8;
+    background: #fff; color: var(--ink); cursor: pointer; font-size: 12px;
+  }
+  .filter-btn.has-value { border-color: var(--accent-blue); color: var(--accent-blue); font-weight: 700; }
+  .filter-menu {
+    display: none; position: absolute; top: calc(100% + 4px); left: 0; z-index: 20;
+    background: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.12);
+    padding: 6px; min-width: 170px; max-height: 260px; overflow-y: auto;
+  }
+  .filter-menu.open { display: block; }
+  .filter-menu label { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+  .filter-menu label:hover { background: var(--surface-page); }
+  .reset-btn { font: inherit; padding: 6px 12px; border-radius: 999px; border: 1px solid transparent; background: transparent; color: var(--ink-secondary); cursor: pointer; font-size: 12px; text-decoration: underline; }
+  .sort-select { font: inherit; padding: 6px 10px; border-radius: 999px; border: 1px solid #ccd0d8; background: #fff; margin-left: auto; }
+  .result-count { font-size: 11px; color: var(--ink-secondary); margin-bottom: 8px; }
+
+  /* ---------- Table ---------- */
+  .table-scroll { overflow-x: auto; background: var(--surface-card); border-radius: 8px; box-shadow: 0 1px 4px rgba(15,37,110,.08); }
+  table { border-collapse: collapse; width: 100%; white-space: nowrap; }
+  th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid #eef0f2; font-size: 12px; }
+  th { position: sticky; top: 0; background: var(--ink); color: #fff; font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .02em; z-index: 5; }
+  tr.hp-row td { background: var(--hp-row); }
+  tr:hover td { background: #F5F8FF; }
+  tr.hp-row:hover td { background: #E8ECFA; }
+  a.job-link { color: var(--accent-blue); text-decoration: none; }
+  a.job-link:hover { text-decoration: underline; }
+
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 999px; font-weight: 700; font-size: 11px; }
+  .badge.g { background: var(--good-bg); color: var(--good-text); }
+  .badge.y { background: #FFF6DD; color: #8a6d00; }
+  .badge.r { background: var(--bad-bg); color: var(--bad-text); }
+  .badge.n { background: var(--flat-bg); color: var(--flat-text); }
+
+  .circle { font-size: 13px; }
+
+  select.decision-select { font: inherit; font-size: 12px; padding: 3px 6px; border-radius: 5px; border: 1px solid #ccd0d8; }
+  .save-btn { font: inherit; font-size: 11px; padding: 3px 9px; border-radius: 5px; border: none; background: var(--accent-cyan); color: #fff; cursor: pointer; margin-left: 4px; }
+  .save-btn:disabled { background: #ccd0d8; cursor: default; }
+  .save-status { font-size: 10.5px; margin-left: 6px; color: var(--ink-secondary); }
+
+  .hp-legend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-secondary); margin-bottom: 10px; }
+  .hp-swatch { width: 14px; height: 14px; border-radius: 3px; background: var(--hp-row); border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <h1>INTERNAL JOBS TRACKER</h1>
+  <div class="sub" id="generatedAtLabel">Loading…</div>
+</div>
+
+<div class="wrap">
+
+  <!-- ============ KPI SECTION ============ -->
+  <div class="kpi-controls">
+    <label class="kpi-note" for="rangeSelect">Period:</label>
+    <select id="rangeSelect">
+      <option value="current-month">Current month</option>
+      <option value="1">Last 1 month</option>
+      <option value="2" selected>Last 2 months</option>
+      <option value="3">Last 3 months</option>
+      <option value="6">Last 6 months</option>
+      <option value="12">Last 12 months</option>
+    </select>
+    <span class="kpi-note" id="periodLabel"></span>
+  </div>
+  <div class="cards" id="kpiCards"></div>
+
+  <!-- ============ VIEW TOGGLE ============ -->
+  <div class="view-toggle">
+    <button id="tabJob" class="active">Job Level</button>
+    <button id="tabTalent">Talent Level</button>
+  </div>
+
+  <div class="hp-legend"><span class="hp-swatch"></span> Highlighted rows = the 15 tracked HP (High-Priority) jobs</div>
+
+  <div class="filters" id="filterBar"></div>
+  <div class="result-count" id="resultCount"></div>
+
+  <div class="table-scroll">
+    <table>
+      <thead><tr id="tableHead"></tr></thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+const GOOGLE_CLIENT_ID = 'REPLACE_WITH_OAUTH_CLIENT_ID.apps.googleusercontent.com';
+const SHEET_ID = '1n1aqgvOnbdwxJXPzNpe-AMa2mzKBtMeE4q5exXN1rwo';
+const DECISION_OPTIONS = ['', 'Core Offer', 'Termination as Talent', 'Extending as Talent'];
+
+let DATA = null;
+let activeView = 'job';
+let accessToken = null;
+let tokenClient = null;
+
+const jobFilterState = { jobStatus: new Set(), pcFlag: new Set(), csFlag: new Set(), shFlag: new Set(), phFlag: new Set() };
+const talentFilterState = { jobStatus: new Set(), onboarding: new Set(), budget: new Set(), trial: new Set(), offboarding: new Set() };
+let jobSort = { key: 'postedDate', dir: 'desc' };
+let talentSort = { key: 'postedDate', dir: 'desc' };
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function flagBadge(flag, text) {
+  const cls = flag === '🔴' ? 'r' : flag === '🟡' ? 'y' : flag === '🟢' ? 'g' : 'n';
+  return `<span class="badge ${cls}">${text}${flag ? ' ' + flag : ''}</span>`;
+}
+
+/* ---------------- KPI computation ---------------- */
+function periodBounds(rangeVal) {
+  const now = new Date();
+  let start, end, days;
+  if (rangeVal === 'current-month') {
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
+    end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  } else {
+    const months = Number(rangeVal);
+    end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    start = new Date(now.getFullYear(), now.getMonth() + 1 - months, 1);
+  }
+  days = Math.round((end - start) / 86400000);
+  const prevEnd = start;
+  const prevStart = new Date(start.getTime() - days * 86400000);
+  return { start, end, prevStart, prevEnd };
+}
+
+function inRange(dateStr, start, end) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr + 'T00:00:00');
+  return d >= start && d < end;
+}
+
+function avg(arr) { const v = arr.filter(x => x !== null && x !== undefined); return v.length ? v.reduce((a,b)=>a+b,0) / v.length : null; }
+
+function computeKpis(jobs, start, end) {
+  const inP = jobs.filter(j => inRange(j.postedDate, start, end));
+  const talentsInP = DATA.talents.filter(t => inRange(t.postedDate, start, end));
+  const approved = talentsInP.reduce((s,t)=> s + (t.budgetApproved||0), 0);
+  const used = talentsInP.reduce((s,t)=> s + (t.budgetUsed||0), 0);
+  return {
+    postedToClaimed: avg(talentsInP.map(t=>t.postedToClaimedDays)),
+    claimedToSent: avg(talentsInP.map(t=>t.claimedToSentDays)),
+    sentToHire: avg(talentsInP.map(t=>t.sentToHireDays)),
+    postedToHire: avg(talentsInP.map(t=>t.postedToHireDays)),
+    pctUsed: approved > 0 ? (used/approved*100) : null,
+    totalIJ: inP.length,
+    activeIJ: inP.filter(j => j.jobStatus === 'ACTIVE').length,
+  };
+}
+
+function growthBadge(current, prior, lowerIsBetter) {
+  if (current === null || prior === null || prior === 0) return '<span class="growth flat">n/a</span>';
+  const pct = ((current - prior) / Math.abs(prior)) * 100;
+  const up = pct >= 0;
+  const good = lowerIsBetter ? !up : up;
+  const cls = Math.abs(pct) < 0.5 ? 'flat' : (good ? 'good' : 'bad');
+  const arrow = up ? '↑' : '↓';
+  return `<span class="growth ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+}
+
+function fmtDays(v) { return v === null ? '—' : v.toFixed(1) + 'd'; }
+function fmtPct(v) { return v === null ? '—' : v.toFixed(1) + '%'; }
+
+function renderKpis() {
+  const rangeVal = document.getElementById('rangeSelect').value;
+  const { start, end, prevStart, prevEnd } = periodBounds(rangeVal);
+  document.getElementById('periodLabel').textContent =
+    `${start.toISOString().slice(0,10)} → ${new Date(end - 1).toISOString().slice(0,10)} vs. prior equal-length period`;
+
+  const cur = computeKpis(DATA.jobs, start, end);
+  const prior = computeKpis(DATA.jobs, prevStart, prevEnd);
+
+  const cards = [
+    { name: 'Posted → Claimed', value: fmtDays(cur.postedToClaimed), g: growthBadge(cur.postedToClaimed, prior.postedToClaimed, true), prior: fmtDays(prior.postedToClaimed) },
+    { name: 'Claimed → Sent', value: fmtDays(cur.claimedToSent), g: growthBadge(cur.claimedToSent, prior.claimedToSent, true), prior: fmtDays(prior.claimedToSent) },
+    { name: 'Sent → Hire', value: fmtDays(cur.sentToHire), g: growthBadge(cur.sentToHire, prior.sentToHire, true), prior: fmtDays(prior.sentToHire) },
+    { name: 'Posted → Hire', value: fmtDays(cur.postedToHire), g: growthBadge(cur.postedToHire, prior.postedToHire, true), prior: fmtDays(prior.postedToHire) },
+    { name: '% Budget Used', value: fmtPct(cur.pctUsed), g: growthBadge(cur.pctUsed, prior.pctUsed, true), prior: fmtPct(prior.pctUsed) },
+    { name: 'Total IJ → Active IJ', value: `${cur.totalIJ} → ${cur.activeIJ}`, g: growthBadge(cur.totalIJ, prior.totalIJ, false), prior: `${prior.totalIJ} → ${prior.activeIJ}` },
+  ];
+
+  document.getElementById('kpiCards').innerHTML = cards.map(c => `
+    <div class="card">
+      <div class="kpi-name">${c.name}</div>
+      <div class="value-row"><span class="value">${c.value}</span>${c.g}</div>
+      <div class="prior">Prior period: ${c.prior}</div>
+    </div>`).join('');
+}
+
+/* ---------------- Filters ---------------- */
+function uniqueValues(arr, key) { return [...new Set(arr.map(x => x[key]).filter(v => v !== '' && v !== null && v !== undefined))].sort(); }
+
+function buildFilterGroup(id, label, options, stateSet, onChange) {
+  const active = stateSet.size > 0;
+  return `
+    <div class="filter-group">
+      <button class="filter-btn ${active ? 'has-value' : ''}" data-toggle="${id}">${label}${active ? ` (${stateSet.size})` : ''}</button>
+      <div class="filter-menu" id="menu-${id}">
+        ${options.map(o => `<label><input type="checkbox" value="${esc(o)}" ${stateSet.has(o) ? 'checked' : ''} data-group="${id}"> ${esc(o)}</label>`).join('')}
+      </div>
+    </div>`;
+}
+
+function renderFilterBar() {
+  const bar = document.getElementById('filterBar');
+  if (activeView === 'job') {
+    bar.innerHTML = [
+      buildFilterGroup('jobStatus', 'Job Status', uniqueValues(DATA.jobs, 'jobStatus'), jobFilterState.jobStatus),
+      '<span style="width:1px;background:#ccd0d8;align-self:stretch;"></span>',
+    ].join('') +
+      buildFilterGroup('pcFlag', 'Posted→Claimed Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.pcFlag) +
+      buildFilterGroup('csFlag', 'Claimed→Sent Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.csFlag) +
+      buildFilterGroup('shFlag', 'Sent→Hire Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.shFlag) +
+      buildFilterGroup('phFlag', 'Posted→Hire Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.phFlag) +
+      `<button class="reset-btn" id="resetFilters">Reset filters</button>
+       <select class="sort-select" id="sortSelect">
+         <option value="postedDate:desc">Posted date (newest)</option>
+         <option value="postedDate:asc">Posted date (oldest)</option>
+         <option value="postedToHireDays:desc">Posted→Hire (longest)</option>
+         <option value="postedToHireDays:asc">Posted→Hire (shortest)</option>
+         <option value="jobTitle:asc">Job Title (A-Z)</option>
+       </select>`;
+  } else {
+    bar.innerHTML =
+      buildFilterGroup('jobStatus', 'Job Status', uniqueValues(DATA.talents, 'jobStatus'), talentFilterState.jobStatus) +
+      buildFilterGroup('onboarding', 'Onboarding Status', ['🟢','🔴','⚪'], talentFilterState.onboarding) +
+      buildFilterGroup('budget', 'Budget Status', ['🟢','🟡','🔴','⚪'], talentFilterState.budget) +
+      buildFilterGroup('trial', 'Trial Warning', ['🟢','🟡','🔴','⚪'], talentFilterState.trial) +
+      buildFilterGroup('offboarding', 'Offboarding Warning', ['🟢','🔴','⚪'], talentFilterState.offboarding) +
+      `<button class="reset-btn" id="resetFilters">Reset filters</button>
+       <select class="sort-select" id="sortSelect">
+         <option value="postedDate:desc">Posted date (newest)</option>
+         <option value="postedDate:asc">Posted date (oldest)</option>
+         <option value="talentName:asc">Talent Name (A-Z)</option>
+         <option value="decisionDate:asc">55-Day Decision Date</option>
+       </select>`;
+  }
+
+  bar.querySelectorAll('[data-toggle]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.toggle;
+      document.querySelectorAll('.filter-menu').forEach(m => { if (m.id !== `menu-${id}`) m.classList.remove('open'); });
+      document.getElementById(`menu-${id}`).classList.toggle('open');
+    });
+  });
+  bar.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const state = activeView === 'job' ? jobFilterState : talentFilterState;
+      const set = state[cb.dataset.group];
+      if (cb.checked) set.add(cb.value); else set.delete(cb.value);
+      renderFilterBar();
+      renderTable();
+    });
+  });
+  const resetBtn = document.getElementById('resetFilters');
+  if (resetBtn) resetBtn.addEventListener('click', () => {
+    const state = activeView === 'job' ? jobFilterState : talentFilterState;
+    Object.values(state).forEach(s => s.clear());
+    renderFilterBar();
+    renderTable();
+  });
+  const sortSelect = document.getElementById('sortSelect');
+  if (sortSelect) {
+    const cur = activeView === 'job' ? jobSort : talentSort;
+    sortSelect.value = `${cur.key}:${cur.dir}`;
+    sortSelect.addEventListener('change', () => {
+      const [key, dir] = sortSelect.value.split(':');
+      if (activeView === 'job') jobSort = { key, dir }; else talentSort = { key, dir };
+      renderTable();
+    });
+  }
+  document.addEventListener('click', () => document.querySelectorAll('.filter-menu').forEach(m => m.classList.remove('open')), { once: true });
+}
+
+/* ---------------- Table rendering ---------------- */
+function applySort(rows, sort) {
+  const { key, dir } = sort;
+  return [...rows].sort((a, b) => {
+    let av = a[key], bv = b[key];
+    if (av === null || av === undefined) av = dir === 'asc' ? Infinity : -Infinity;
+    if (bv === null || bv === undefined) bv = dir === 'asc' ? Infinity : -Infinity;
+    if (av < bv) return dir === 'asc' ? -1 : 1;
+    if (av > bv) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+}
+
+function filterJobs() {
+  return DATA.jobs.filter(j =>
+    (jobFilterState.jobStatus.size === 0 || jobFilterState.jobStatus.has(j.jobStatus))
+  );
+}
+
+function filterTalents() {
+  return DATA.talents.filter(t =>
+    (talentFilterState.jobStatus.size === 0 || talentFilterState.jobStatus.has(t.jobStatus)) &&
+    (talentFilterState.onboarding.size === 0 || talentFilterState.onboarding.has(t.onboardingStatus)) &&
+    (talentFilterState.budget.size === 0 || talentFilterState.budget.has(t.budgetStatus)) &&
+    (talentFilterState.trial.size === 0 || talentFilterState.trial.has(t.decisionWarning)) &&
+    (talentFilterState.offboarding.size === 0 || talentFilterState.offboarding.has(t.offboardingWarning))
+  );
+}
+
+const JOB_HEAD = ['Job ID','Job Posted','Job Title','Status','Posted→Claimed','Claimed→Sent','Sent→Hire','Posted→Hire','# AR Sent','# Confirmed Apps','# Talents Sent'];
+const TALENT_HEAD = ['Job ID','Job Posted','Job Title','Status','Talent Name','Commitment','Wkly Hrs','Hrs Warning','Onboarding','ITOps Ticket','Core Email','Topteam','Correct Report','% Used','Budget Status','55-Day Decision','Decision','Trial Warning','Required?','Job Closed','Hrs Removed','Email Removed','Topteam Removed','Offboard Warning'];
+
+function renderTable() {
+  const head = document.getElementById('tableHead');
+  const body = document.getElementById('tableBody');
+  const countEl = document.getElementById('resultCount');
+
+  if (activeView === 'job') {
+    head.innerHTML = JOB_HEAD.map(h => `<th>${h}</th>`).join('');
+    let rows = applySort(filterJobs(), jobSort);
+    rows.sort((a,b) => (b.isHP - a.isHP)); // HP jobs float to top within sort
+    countEl.textContent = `${rows.length} of ${DATA.jobs.length} jobs`;
+    body.innerHTML = rows.map(j => `
+      <tr class="${j.isHP ? 'hp-row' : ''}">
+        <td>${esc(j.jobId)}</td>
+        <td>${esc(j.postedDate)}</td>
+        <td><a class="job-link" href="${esc(j.jobLink)}" target="_blank">${esc(j.jobTitle)}</a></td>
+        <td>${esc(j.jobStatus)}</td>
+        <td>${flagBadge(talentFlagFor(j, 'postedToClaimed'), dayLabel(j, 'postedToClaimed'))}</td>
+        <td>${flagBadge(talentFlagFor(j, 'claimedToSent'), dayLabel(j, 'claimedToSent'))}</td>
+        <td>${flagBadge(talentFlagFor(j, 'sentToHire'), dayLabel(j, 'sentToHire'))}</td>
+        <td>${flagBadge(talentFlagFor(j, 'postedToHire'), dayLabel(j, 'postedToHire'))}</td>
+        <td>${j.arSent ?? '—'}</td>
+        <td>${j.confirmedApplications ?? '—'}</td>
+        <td>${j.talentsSent ?? '—'}</td>
+      </tr>`).join('');
+  } else {
+    head.innerHTML = TALENT_HEAD.map(h => `<th>${h}</th>`).join('');
+    let rows = applySort(filterTalents(), talentSort);
+    rows.sort((a,b) => (b.isHP - a.isHP));
+    countEl.textContent = `${rows.length} of ${DATA.talents.length} talents`;
+    body.innerHTML = rows.map(t => `
+      <tr class="${t.isHP ? 'hp-row' : ''}" data-row-ref="${t.rowRef}">
+        <td>${esc(t.jobId)}</td>
+        <td>${esc(t.postedDate)}</td>
+        <td><a class="job-link" href="${esc(t.jobLink)}" target="_blank">${esc(t.jobTitle)}</a></td>
+        <td>${esc(t.jobStatus)}</td>
+        <td>${esc(t.talentName)}</td>
+        <td>${esc(t.commitmentType)}</td>
+        <td>${t.weeklyHours ?? '—'}</td>
+        <td class="circle">${esc(t.hoursWarning)}</td>
+        <td class="circle">${esc(t.onboardingStatus)}</td>
+        <td class="circle">${esc(t.itopsTicketStatus)}</td>
+        <td class="circle">${esc(t.coreEmailStatus)}</td>
+        <td class="circle">${esc(t.topteamProfile)}</td>
+        <td class="circle">${esc(t.correctReportTopteam)}</td>
+        <td>${t.pctUsed !== null ? t.pctUsed.toFixed(0) + '%' : '—'}</td>
+        <td class="circle">${esc(t.budgetStatus)}</td>
+        <td>${esc(t.decisionDate) || '—'}</td>
+        <td>
+          <select class="decision-select" data-row-ref="${t.rowRef}">
+            ${DECISION_OPTIONS.map(o => `<option value="${esc(o)}" ${o === t.decision ? 'selected' : ''}>${o || '(none)'}</option>`).join('')}
+          </select>
+          <button class="save-btn" data-row-ref="${t.rowRef}" disabled>Save</button>
+          <span class="save-status" id="save-status-${t.rowRef}"></span>
+        </td>
+        <td class="circle">${esc(t.decisionWarning)}</td>
+        <td>${esc(t.required)}</td>
+        <td class="circle">${esc(t.jobClosedStatus)}</td>
+        <td class="circle">${esc(t.hoursRemovedStatus)}</td>
+        <td class="circle">${esc(t.coreEmailRemovedStatus)}</td>
+        <td class="circle">${esc(t.topteamRemovedStatus)}</td>
+        <td class="circle">${esc(t.offboardingWarning)}</td>
+      </tr>`).join('');
+    wireDecisionEditing();
+  }
+}
+
+// Job-level SLA cells reuse the talent-level day/flag fields off the "primary" row already folded into jobs[]
+function dayLabel(job, metric) {
+  const map = { postedToClaimed: 'postedToClaimedDays', claimedToSent: 'claimedToSentDays', sentToHire: 'sentToHireDays', postedToHire: 'postedToHireDays' };
+  const t = DATA.talents.find(x => x.jobId === job.jobId && x[map[metric]] !== null);
+  const v = t ? t[map[metric]] : null;
+  return v === null || v === undefined ? '—' : v + 'd';
+}
+function talentFlagFor(job, metric) {
+  const map = { postedToClaimed: 'postedToClaimedFlag', claimedToSent: 'claimedToSentFlag', sentToHire: 'sentToHireFlag', postedToHire: 'postedToHireFlag' };
+  const t = DATA.talents.find(x => x.jobId === job.jobId);
+  return t ? t[map[metric]] : '';
+}
+
+/* ---------------- Editable Decision + Google Sign-In write-back ---------------- */
+function wireDecisionEditing() {
+  document.querySelectorAll('.decision-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const btn = document.querySelector(`.save-btn[data-row-ref="${sel.dataset.rowRef}"]`);
+      btn.disabled = false;
+    });
+  });
+  document.querySelectorAll('.save-btn').forEach(btn => {
+    btn.addEventListener('click', () => saveDecision(btn.dataset.rowRef));
+  });
+}
+
+function ensureTokenClient() {
+  if (tokenClient) return;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: 'https://www.googleapis.com/auth/spreadsheets',
+    callback: () => {},
+  });
+}
+
+async function getToken() {
+  ensureTokenClient();
+  if (accessToken) return accessToken;
+  return new Promise((resolve, reject) => {
+    tokenClient.callback = (resp) => {
+      if (resp.error) return reject(resp);
+      accessToken = resp.access_token;
+      resolve(accessToken);
+    };
+    tokenClient.requestAccessToken({ prompt: '' });
+  });
+}
+
+async function saveDecision(rowRef) {
+  const statusEl = document.getElementById(`save-status-${rowRef}`);
+  const sel = document.querySelector(`.decision-select[data-row-ref="${rowRef}"]`);
+  const btn = document.querySelector(`.save-btn[data-row-ref="${rowRef}"]`);
+  statusEl.textContent = 'Signing in…';
+  try {
+    const token = await getToken();
+    statusEl.textContent = 'Saving…';
+    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Talent%20Tracker!AK${rowRef}?valueInputOption=USER_ENTERED`;
+    const writeRes = await fetch(writeUrl, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: [[sel.value]] }),
+    });
+    if (!writeRes.ok) throw new Error(await writeRes.text());
+
+    // Sheet formulas recalc instantly server-side; re-read the row's offboarding cells.
+    statusEl.textContent = 'Refreshing…';
+    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Talent%20Tracker!A${rowRef}:AV${rowRef}`;
+    const readRes = await fetch(readUrl, { headers: { Authorization: `Bearer ${token}` } });
+    const readJson = await readRes.json();
+    const r = (readJson.values && readJson.values[0]) || [];
+    const t = DATA.talents.find(x => x.rowRef === Number(rowRef));
+    if (t && r.length) {
+      t.decision = r[36] || '';
+      t.decisionWarning = r[37] || '';
+      t.required = r[38] || '';
+      t.jobClosedStatus = r[40] || '';
+      t.hoursRemovedStatus = r[42] || '';
+      t.coreEmailRemovedStatus = r[44] || '';
+      t.topteamRemovedStatus = r[46] || '';
+      t.offboardingWarning = r[47] || '';
+    }
+    statusEl.textContent = 'Saved ✓';
+    btn.disabled = true;
+    renderTable();
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'Error — try again';
+  }
+}
+
+/* ---------------- Init ---------------- */
+document.getElementById('tabJob').addEventListener('click', () => { activeView = 'job'; document.getElementById('tabJob').classList.add('active'); document.getElementById('tabTalent').classList.remove('active'); renderFilterBar(); renderTable(); });
+document.getElementById('tabTalent').addEventListener('click', () => { activeView = 'talent'; document.getElementById('tabTalent').classList.add('active'); document.getElementById('tabJob').classList.remove('active'); renderFilterBar(); renderTable(); });
+document.getElementById('rangeSelect').addEventListener('change', renderKpis);
+
+async function init() {
+  const res = await fetch('data/tracker-data.json');
+  DATA = await res.json();
+  document.getElementById('generatedAtLabel').textContent = `Data as of ${new Date(DATA.generatedAt).toLocaleString()} · refreshed daily`;
+  renderKpis();
+  renderFilterBar();
+  renderTable();
+}
+init();
+</script>
+</body>
+</html>
