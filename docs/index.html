@@ -451,17 +451,22 @@ function renderTable() {
   }
 }
 
-// Job-level SLA cells reuse the talent-level day/flag fields off the "primary" row already folded into jobs[]
+// Job-level SLA cells reuse the talent-level day/flag fields off the same matched row, so a
+// day-count and its flag color always come from the same underlying talent row.
+const SLA_DAY_KEY = { postedToClaimed: 'postedToClaimedDays', claimedToSent: 'claimedToSentDays', sentToHire: 'sentToHireDays', postedToHire: 'postedToHireDays' };
+const SLA_FLAG_KEY = { postedToClaimed: 'postedToClaimedFlag', claimedToSent: 'claimedToSentFlag', sentToHire: 'sentToHireFlag', postedToHire: 'postedToHireFlag' };
+function slaRowFor(job, metric) {
+  const dayKey = SLA_DAY_KEY[metric];
+  return DATA.talents.find(x => x.jobId === job.jobId && x[dayKey] !== null) || DATA.talents.find(x => x.jobId === job.jobId);
+}
 function dayLabel(job, metric) {
-  const map = { postedToClaimed: 'postedToClaimedDays', claimedToSent: 'claimedToSentDays', sentToHire: 'sentToHireDays', postedToHire: 'postedToHireDays' };
-  const t = DATA.talents.find(x => x.jobId === job.jobId && x[map[metric]] !== null);
-  const v = t ? t[map[metric]] : null;
+  const t = slaRowFor(job, metric);
+  const v = t ? t[SLA_DAY_KEY[metric]] : null;
   return v === null || v === undefined ? '—' : v + 'd';
 }
 function talentFlagFor(job, metric) {
-  const map = { postedToClaimed: 'postedToClaimedFlag', claimedToSent: 'claimedToSentFlag', sentToHire: 'sentToHireFlag', postedToHire: 'postedToHireFlag' };
-  const t = DATA.talents.find(x => x.jobId === job.jobId);
-  return t ? t[map[metric]] : '';
+  const t = slaRowFor(job, metric);
+  return t ? t[SLA_FLAG_KEY[metric]] : '';
 }
 
 /* ---------------- Editable Decision + Google Sign-In write-back ---------------- */
