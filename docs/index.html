@@ -172,6 +172,7 @@
       <input type="date" id="rangeFrom"> <span class="kpi-note">to</span> <input type="date" id="rangeTo">
       <button id="applyRange" class="kpi-note" style="cursor:pointer;">Apply</button>
     </div>
+    <div id="kpiStatusFilterBar"></div>
     <span class="kpi-note" id="periodLabel"></span>
   </div>
 
@@ -229,6 +230,8 @@ let monthlyChart = null;
 
 const jobFilterState = { jobStatus: new Set(['ACTIVE']), pcFlag: new Set(), csFlag: new Set(), shFlag: new Set(), phFlag: new Set() };
 const talentFilterState = { jobStatus: new Set(['ACTIVE']), onboarding: new Set(), budget: new Set(), trial: new Set(), offboarding: new Set() };
+// Separate from the two above — this one scopes the KPI cards + chart only, independent of the tracker table filters below.
+const kpiStatusFilter = new Set();
 let jobSort = { key: 'postedDate', dir: 'desc' };
 let talentSort = { key: 'postedDate', dir: 'desc' };
 
@@ -275,8 +278,12 @@ function median(arr) {
   return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
 }
 
+function passesKpiStatusFilter(status) {
+  return kpiStatusFilter.size === 0 || kpiStatusFilter.has(status);
+}
+
 function computeSlaKpis(start, end) {
-  const talentsInP = DATA.talents.filter(t => inRange(t.postedDate, start, end));
+  const talentsInP = DATA.talents.filter(t => inRange(t.postedDate, start, end) && passesKpiStatusFilter(t.jobStatus));
   return {
     postedToClaimed: median(talentsInP.map(t => t.postedToClaimedDays)),
     claimedToSent: median(talentsInP.map(t => t.claimedToSentDays)),
@@ -286,8 +293,8 @@ function computeSlaKpis(start, end) {
 }
 
 function computeOverviewKpis(start, end) {
-  const inP = DATA.jobs.filter(j => inRange(j.postedDate, start, end));
-  const talentsInP = DATA.talents.filter(t => inRange(t.postedDate, start, end));
+  const inP = DATA.jobs.filter(j => inRange(j.postedDate, start, end) && passesKpiStatusFilter(j.jobStatus));
+  const talentsInP = DATA.talents.filter(t => inRange(t.postedDate, start, end) && passesKpiStatusFilter(t.jobStatus));
   // Only jobs with an actual Used figure recorded — many have Approved but no
   // spend posted yet, and including those in the denominator understates % used.
   const withUsage = talentsInP.filter(t => t.budgetUsed !== null);
@@ -317,7 +324,27 @@ function fmtDays(v) { return v === null ? '—' : v.toFixed(1) + 'd'; }
 function fmtPct(v) { return v === null ? '—' : v.toFixed(1) + '%'; }
 function fmtNum(v) { return v === null ? '—' : v; }
 
+function renderKpiStatusFilter() {
+  const bar = document.getElementById('kpiStatusFilterBar');
+  bar.innerHTML = buildFilterGroup('kpiJobStatus', 'Job Status', uniqueValues(DATA.jobs, 'jobStatus'), kpiStatusFilter);
+  bar.querySelectorAll('[data-toggle]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('.filter-menu').forEach(m => { if (m.id !== `menu-${btn.dataset.toggle}`) m.classList.remove('open'); });
+      document.getElementById(`menu-${btn.dataset.toggle}`).classList.toggle('open');
+    });
+  });
+  bar.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) kpiStatusFilter.add(cb.value); else kpiStatusFilter.delete(cb.value);
+      renderKpiStatusFilter();
+      renderKpis();
+    });
+  });
+}
+
 function renderKpis() {
+  renderKpiStatusFilter();
   const rangeVal = document.getElementById('rangeSelect').value;
   const { start, end, prevStart, prevEnd } = periodBounds(rangeVal);
   document.getElementById('periodLabel').textContent =
@@ -400,7 +427,7 @@ function renderMonthlyChart() {
   const labels = months.map(m => m.toLocaleString('default', { month: 'short', year: '2-digit' }));
   const values = months.map(m => {
     const mEnd = new Date(m.getFullYear(), m.getMonth() + 1, 1);
-    const inMonth = DATA.talents.filter(t => inRange(t.postedDate, m, mEnd));
+    const inMonth = DATA.talents.filter(t => inRange(t.postedDate, m, mEnd) && passesKpiStatusFilter(t.jobStatus));
     return median(inMonth.map(t => t[activeChartMetric]));
   });
 
