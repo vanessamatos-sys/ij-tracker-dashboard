@@ -426,8 +426,9 @@ function renderMonthlyChart() {
   const { start, end } = lastPeriod;
   const months = [];
   let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
-  const endCap = new Date(end.getFullYear(), end.getMonth(), 1);
-  while (cursor <= endCap) {
+  // `end` is an exclusive boundary (start of the month AFTER the period) — stop before it,
+  // not at-or-before, or the chart shows one extra month past the selected range.
+  while (cursor < end) {
     months.push(new Date(cursor));
     cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
   }
@@ -604,7 +605,6 @@ const TALENT_COLS = [
   ['% Used', 42], ['Budget', 40], ['55-Day Dec.', 54],
   ['Decision', 136], ['Trial', 40], ['Req?', 34],
   ['Job Closed', 42, '', 'Offboarding'], ['Hrs Rmv', 42, '', 'Offboarding'], ['Email Rmv', 42, '', 'Offboarding'], ['Topteam Rmv', 46, '', 'Offboarding'],
-  ['Offb. Warn', 42],
 ];
 
 function renderColgroupAndHead(cols) {
@@ -661,7 +661,7 @@ function renderTable() {
         <td class="center">${esc(t.jobStatus)}</td>
         <td>${esc(t.talentName)}</td>
         <td>${esc(t.approver) || '—'}</td>
-        <td>${commAbbrev(t.commitmentType)}</td>
+        <td class="center">${commAbbrev(t.commitmentType)}</td>
         <td class="center">${t.weeklyHours ?? '—'}</td>
         <td class="circle">${esc(t.hoursWarning)}</td>
         <td class="circle">${esc(t.itopsTicketStatus)}</td>
@@ -684,7 +684,6 @@ function renderTable() {
         <td class="circle">${esc(t.hoursRemovedStatus)}</td>
         <td class="circle">${esc(t.coreEmailRemovedStatus)}</td>
         <td class="circle">${esc(t.topteamRemovedStatus)}</td>
-        <td class="circle">${esc(t.offboardingWarning)}</td>
       </tr>`).join('');
     wireDecisionEditing();
   }
