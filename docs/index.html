@@ -188,7 +188,7 @@
 
   <div class="chart-card">
     <div class="chart-head">
-      <h3 id="chartTitle">Posted → Hire, average days by month</h3>
+      <h3 id="chartTitle">Posted → Hire, median days by month</h3>
       <div class="chart-metric-toggle" id="chartMetricToggle">
         <button data-metric="postedToHireDays" class="active">Posted→Hire</button>
         <button data-metric="postedToClaimedDays">Posted→Claimed</button>
@@ -295,20 +295,21 @@ function inRange(dateStr, start, end) {
   return d >= start && d < end;
 }
 
-function average(arr) {
-  const v = arr.filter(x => x !== null && x !== undefined);
+function median(arr) {
+  const v = arr.filter(x => x !== null && x !== undefined).sort((a, b) => a - b);
   if (!v.length) return null;
-  return v.reduce((a, b) => a + b, 0) / v.length;
+  const mid = Math.floor(v.length / 2);
+  return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
 }
 
 // SLA cards: always ACTIVE + CLOSED only, regardless of any other selection — fixed scope, not user-filterable.
 function computeSlaKpis(start, end) {
   const talentsInP = DATA.talents.filter(t => inRange(t.postedDate, start, end) && SLA_STATUSES.includes(t.jobStatus));
   return {
-    postedToClaimed: average(talentsInP.map(t => t.postedToClaimedDays)),
-    claimedToSent: average(talentsInP.map(t => t.claimedToSentDays)),
-    sentToHire: average(talentsInP.map(t => t.sentToHireDays)),
-    postedToHire: average(talentsInP.map(t => t.postedToHireDays)),
+    postedToClaimed: median(talentsInP.map(t => t.postedToClaimedDays)),
+    claimedToSent: median(talentsInP.map(t => t.claimedToSentDays)),
+    sentToHire: median(talentsInP.map(t => t.sentToHireDays)),
+    postedToHire: median(talentsInP.map(t => t.postedToHireDays)),
   };
 }
 
@@ -365,7 +366,7 @@ function renderKpis() {
     <div class="card" style="--cat-color:var(--sla-color)">
       <div class="kpi-name">${c.name}</div>
       <div class="value-row"><span class="value">${c.value}</span>${c.g}</div>
-      <div class="prior">Prior period: ${c.prior} · average</div>
+      <div class="prior">Prior period: ${c.prior} · median</div>
     </div>`).join('');
 
   const ovCards = [
@@ -418,7 +419,7 @@ const dataLabelPlugin = {
 
 function monthlyAverage(m, mEnd) {
   const inMonth = DATA.talents.filter(t => inRange(t.postedDate, m, mEnd) && SLA_STATUSES.includes(t.jobStatus));
-  return average(inMonth.map(t => t[activeChartMetric]));
+  return median(inMonth.map(t => t[activeChartMetric]));
 }
 
 function renderMonthlyChart() {
@@ -439,7 +440,7 @@ function renderMonthlyChart() {
     return monthlyAverage(py, new Date(py.getFullYear(), py.getMonth() + 1, 1));
   });
 
-  document.getElementById('chartTitle').textContent = `${METRIC_LABELS[activeChartMetric]} — average days by month, vs. same month last year`;
+  document.getElementById('chartTitle').textContent = `${METRIC_LABELS[activeChartMetric]} — median days by month, vs. same month last year`;
 
   const ctx = document.getElementById('monthlyChart');
   if (monthlyChart) monthlyChart.destroy();
