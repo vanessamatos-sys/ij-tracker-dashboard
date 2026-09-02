@@ -24,7 +24,6 @@
     --bad-bg: #FBE9E7;   --bad-text: #C0392B;
     --flat-bg: #EBECED;  --flat-text: #49526A;
 
-    --hp-row: #F0F1F2;
   }
   * { box-sizing: border-box; }
   body {
@@ -127,9 +126,7 @@
   }
   #tableGroupHead th.blank { background: var(--ink); }
   td.center { text-align: center; }
-  tr.hp-row td { background: var(--hp-row); }
   tr:hover td { background: #F5F8FF; }
-  tr.hp-row:hover td { background: #E8ECFA; }
   a.job-link { color: var(--accent-blue); text-decoration: none; }
   a.job-link:hover { text-decoration: underline; }
   td.title-cell, th.title-cell { max-width: 0; } /* forces ellipsis to respect colgroup width */
@@ -147,9 +144,6 @@
   .save-btn:disabled { background: #ccd0d8; cursor: default; }
   .save-status { font-size: 9.5px; margin-left: 4px; color: var(--ink-secondary); }
   td.decision-cell { overflow: visible; white-space: nowrap; }
-
-  .hp-legend { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--ink-secondary); margin-bottom: 8px; }
-  .hp-swatch { width: 13px; height: 13px; border-radius: 3px; background: var(--hp-row); border: 1px solid #ccc; }
 </style>
 </head>
 <body>
@@ -205,8 +199,6 @@
     <button id="tabTalent">Talent Level</button>
   </div>
 
-  <div class="hp-legend"><span class="hp-swatch"></span> Highlighted rows = the 15 tracked HP (High-Priority) jobs</div>
-
   <div class="filters" id="filterBar"></div>
   <div class="result-count" id="resultCount"></div>
 
@@ -233,8 +225,8 @@ let accessToken = null;
 let tokenClient = null;
 let monthlyChart = null;
 
-const jobFilterState = { jobStatus: new Set(['ACTIVE']), approver: new Set(), pcFlag: new Set(), csFlag: new Set(), shFlag: new Set(), phFlag: new Set() };
-const talentFilterState = { jobStatus: new Set(['ACTIVE']), approver: new Set(), onboarding: new Set(), budget: new Set(), trial: new Set(), offboarding: new Set() };
+const jobFilterState = { jobStatus: new Set(['ACTIVE']), approver: new Set(), highPriority: new Set(), pcFlag: new Set(), csFlag: new Set(), shFlag: new Set(), phFlag: new Set() };
+const talentFilterState = { jobStatus: new Set(['ACTIVE']), approver: new Set(), highPriority: new Set(), onboarding: new Set(), budget: new Set(), trial: new Set(), offboarding: new Set() };
 const ONBOARDING_SUB_COLS = ['itopsTicketStatus', 'coreEmailStatus', 'topteamProfile', 'correctReportTopteam'];
 const OFFBOARDING_SUB_COLS = ['jobClosedStatus', 'hoursRemovedStatus', 'coreEmailRemovedStatus', 'topteamRemovedStatus'];
 // 🟢 selected => ALL sub-columns must be green; 🔴/⚪ selected => AT LEAST ONE sub-column matches that color.
@@ -496,6 +488,7 @@ function renderFilterBar() {
     bar.innerHTML =
       buildFilterGroup('jobStatus', 'Job Status', uniqueValues(DATA.jobs, 'jobStatus'), jobFilterState.jobStatus) +
       buildFilterGroup('approver', 'Approver', uniqueValues(DATA.jobs, 'approver'), jobFilterState.approver) +
+      buildFilterGroup('highPriority', 'High Priority Job', ['Yes','No'], jobFilterState.highPriority) +
       buildFilterGroup('pcFlag', 'Posted→Claimed Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.pcFlag) +
       buildFilterGroup('csFlag', 'Claimed→Sent Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.csFlag) +
       buildFilterGroup('shFlag', 'Sent→Hire Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.shFlag) +
@@ -512,6 +505,7 @@ function renderFilterBar() {
     bar.innerHTML =
       buildFilterGroup('jobStatus', 'Job Status', uniqueValues(DATA.talents, 'jobStatus'), talentFilterState.jobStatus) +
       buildFilterGroup('approver', 'Approver', uniqueValues(DATA.talents, 'approver'), talentFilterState.approver) +
+      buildFilterGroup('highPriority', 'High Priority Job', ['Yes','No'], talentFilterState.highPriority) +
       buildFilterGroup('onboarding', 'Onboarding Status', ['🟢','🔴','⚪'], talentFilterState.onboarding) +
       buildFilterGroup('budget', 'Budget Status', ['🟢','🟡','🔴','⚪'], talentFilterState.budget) +
       buildFilterGroup('trial', 'Trial Warning', ['🟢','🟡','🔴','⚪'], talentFilterState.trial) +
@@ -575,10 +569,13 @@ function applySort(rows, sort) {
   });
 }
 
+function yesNo(b) { return b ? 'Yes' : 'No'; }
+
 function filterJobs() {
   return DATA.jobs.filter(j =>
     (jobFilterState.jobStatus.size === 0 || jobFilterState.jobStatus.has(j.jobStatus)) &&
-    (jobFilterState.approver.size === 0 || jobFilterState.approver.has(j.approver))
+    (jobFilterState.approver.size === 0 || jobFilterState.approver.has(j.approver)) &&
+    (jobFilterState.highPriority.size === 0 || jobFilterState.highPriority.has(yesNo(j.isHighPriority)))
   );
 }
 
@@ -586,6 +583,7 @@ function filterTalents() {
   return DATA.talents.filter(t =>
     (talentFilterState.jobStatus.size === 0 || talentFilterState.jobStatus.has(t.jobStatus)) &&
     (talentFilterState.approver.size === 0 || talentFilterState.approver.has(t.approver)) &&
+    (talentFilterState.highPriority.size === 0 || talentFilterState.highPriority.has(yesNo(t.isHighPriority))) &&
     matchesColorGroup(t, ONBOARDING_SUB_COLS, talentFilterState.onboarding) &&
     (talentFilterState.budget.size === 0 || talentFilterState.budget.has(t.budgetStatus)) &&
     (talentFilterState.trial.size === 0 || talentFilterState.trial.has(t.decisionWarning)) &&
@@ -634,10 +632,9 @@ function renderTable() {
   if (activeView === 'job') {
     renderColgroupAndHead(JOB_COLS);
     let rows = applySort(filterJobs(), jobSort);
-    rows.sort((a,b) => (b.isHP - a.isHP)); // HP jobs float to top within sort
     countEl.textContent = `${rows.length} of ${DATA.jobs.length} jobs`;
     body.innerHTML = rows.map(j => `
-      <tr class="${j.isHP ? 'hp-row' : ''}">
+      <tr>
         <td>${esc(j.jobId)}</td>
         <td>${esc(j.postedDate)}</td>
         <td class="title-cell"><a class="job-link" href="${esc(j.jobLink)}" target="_blank" title="${esc(j.jobTitle)}">${esc(j.jobTitle)}</a></td>
@@ -653,10 +650,9 @@ function renderTable() {
   } else {
     renderColgroupAndHead(TALENT_COLS);
     let rows = applySort(filterTalents(), talentSort);
-    rows.sort((a,b) => (b.isHP - a.isHP));
     countEl.textContent = `${rows.length} of ${DATA.talents.length} talents`;
     body.innerHTML = rows.map(t => `
-      <tr class="${t.isHP ? 'hp-row' : ''}" data-row-ref="${t.rowRef}">
+      <tr data-row-ref="${t.rowRef}">
         <td class="center">${fmtMMYY(t.postedDate)}</td>
         <td class="title-cell" title="${esc(t.jobTitle)}"><a class="job-link" href="${esc(t.jobLink)}" target="_blank">${esc(t.jobTitle)}</a></td>
         <td class="center">${esc(t.jobStatus)}</td>

@@ -9,13 +9,8 @@ import { createSign } from 'node:crypto';
 import { writeFile, mkdir } from 'node:fs/promises';
 
 const SHEET_ID = '1n1aqgvOnbdwxJXPzNpe-AMa2mzKBtMeE4q5exXN1rwo';
-const DATABASE_RANGE = 'Database!A2:BD3000';
-const TRACKER_RANGE = "Talent Tracker!A3:AV3000";
-
-const HP_JOB_IDS = [
-  '504783', '504775', '504778', '504780', '504786', '504782', '504787',
-  '505064', '505066', '505017', '505312', '504982', '505638', '506182', '506184',
-];
+const DATABASE_RANGE = 'Database!A2:BG3000';
+const TRACKER_RANGE = "Talent Tracker!A3:AY3000";
 
 function base64url(input) {
   return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -96,7 +91,7 @@ function buildJobs(dbRows) {
       talentsSent: num(primary[55]),
       costCenter: primary[56] || '',
       approver: primary[57] || '',
-      isHP: HP_JOB_IDS.includes(jobId),
+      isHighPriority: primary[58] === 'TRUE',
     });
   }
   return jobs;
@@ -145,7 +140,7 @@ function buildTalents(trackerRows) {
       coreEmailRemovedStatus: r[46] || '',
       topteamRemovedStatus: r[48] || '',
       offboardingWarning: r[49] || '',
-      isHP: HP_JOB_IDS.includes(r[0]),
+      isHighPriority: r[50] === 'TRUE',
     }));
 }
 
@@ -158,7 +153,6 @@ async function main() {
 
   const data = {
     generatedAt: new Date().toISOString(),
-    hpJobIds: HP_JOB_IDS,
     jobs: buildJobs(dbRows),
     talents: buildTalents(trackerRows),
   };
