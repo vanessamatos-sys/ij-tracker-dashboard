@@ -117,10 +117,15 @@
   table { border-collapse: collapse; width: 100%; table-layout: fixed; }
   td { padding: 4px 6px; text-align: left; border-bottom: 1px solid #eef0f2; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   th {
-    position: sticky; top: 0; background: var(--ink); color: #fff; font-weight: 700; font-size: 9px;
+    position: sticky; top: 18px; background: var(--ink); color: #fff; font-weight: 700; font-size: 9px;
     text-transform: uppercase; letter-spacing: .01em; z-index: 5; text-align: center;
     padding: 5px 3px; white-space: normal; line-height: 1.15; vertical-align: bottom;
   }
+  #tableGroupHead th {
+    position: sticky; top: 0; height: 18px; background: var(--sla-color); color: #fff; font-weight: 800; font-size: 8.5px;
+    letter-spacing: .04em; padding: 2px 3px; text-transform: uppercase; vertical-align: middle;
+  }
+  #tableGroupHead th.blank { background: var(--ink); }
   td.center { text-align: center; }
   tr.hp-row td { background: var(--hp-row); }
   tr:hover td { background: #F5F8FF; }
@@ -172,7 +177,6 @@
       <input type="date" id="rangeFrom"> <span class="kpi-note">to</span> <input type="date" id="rangeTo">
       <button id="applyRange" class="kpi-note" style="cursor:pointer;">Apply</button>
     </div>
-    <div id="kpiStatusFilterBar"></div>
     <span class="kpi-note" id="periodLabel"></span>
   </div>
 
@@ -209,7 +213,7 @@
   <div class="table-scroll">
     <table id="dataTable">
       <colgroup id="colGroup"></colgroup>
-      <thead><tr id="tableHead"></tr></thead>
+      <thead><tr id="tableGroupHead"></tr><tr id="tableHead"></tr></thead>
       <tbody id="tableBody"></tbody>
     </table>
   </div>
@@ -220,7 +224,8 @@
 const GOOGLE_CLIENT_ID = '57381868856-6d471oasl438l33mg468jbg6o2e3fa7n.apps.googleusercontent.com';
 const SHEET_ID = '1n1aqgvOnbdwxJXPzNpe-AMa2mzKBtMeE4q5exXN1rwo';
 const DECISION_OPTIONS = ['', 'Core Offer', 'Termination as Talent', 'Extending as Talent'];
-const OPEN_STATUSES = ['PENDING_ENGINEER', 'POSTPONED'];
+const OPEN_STATUSES = ['PENDING_CLAIM', 'PENDING_ENGINEER', 'POSTPONED'];
+const SLA_STATUSES = ['ACTIVE', 'CLOSED']; // SLA cards + chart always scope to these, regardless of any other filter
 
 let DATA = null;
 let activeView = 'job';
@@ -230,8 +235,6 @@ let monthlyChart = null;
 
 const jobFilterState = { jobStatus: new Set(['ACTIVE']), pcFlag: new Set(), csFlag: new Set(), shFlag: new Set(), phFlag: new Set() };
 const talentFilterState = { jobStatus: new Set(['ACTIVE']), onboarding: new Set(), budget: new Set(), trial: new Set(), offboarding: new Set() };
-// Separate from the two above — this one scopes the KPI cards + chart only, independent of the tracker table filters below.
-const kpiStatusFilter = new Set();
 let jobSort = { key: 'postedDate', dir: 'desc' };
 let talentSort = { key: 'postedDate', dir: 'desc' };
 
@@ -277,12 +280,9 @@ function average(arr) {
   return v.reduce((a, b) => a + b, 0) / v.length;
 }
 
-function passesKpiStatusFilter(status) {
-  return kpiStatusFilter.size === 0 || kpiStatusFilter.has(status);
-}
-
+// SLA cards: always ACTIVE + CLOSED only, regardless of any other selection — fixed scope, not user-filterable.
 function computeSlaKpis(start, end) {
-  const talentsInP = DATA.talents.filter(t => inRange(t.postedDate, start, end) && passesKpiStatusFilter(t.jobStatus));
+  const talentsInP = DATA.talents.filter(t => inRange(t.postedDate, start, end) && SLA_STATUSES.includes(t.jobStatus));
   return {
     postedToClaimed: average(talentsInP.map(t => t.postedToClaimedDays)),
     claimedToSent: average(talentsInP.map(t => t.claimedToSentDays)),
@@ -291,14 +291,14 @@ function computeSlaKpis(start, end) {
   };
 }
 
+// Overview cards: each box has its own fixed status scope — see per-field comments below.
 function computeOverviewKpis(start, end) {
-  const inP = DATA.jobs.filter(j => inRange(j.postedDate, start, end) && passesKpiStatusFilter(j.jobStatus));
-  const talentsInP = DATA.talents.filter(t => inRange(t.postedDate, start, end) && passesKpiStatusFilter(t.jobStatus));
-  // Only jobs with an actual Used figure recorded — many have Approved but no
-  // spend posted yet, and including those in the denominator understates % used.
-  const withUsage = talentsInP.filter(t => t.budgetUsed !== null);
-  const approved = withUsage.reduce((s, t) => s + (t.budgetApproved || 0), 0);
-  const used = withUsage.reduce((s, t) => s + (t.budgetUsed || 0), 0);
+  const inP = DATA.jobs.filter(j => inRange(j.postedDate, start, end));               // Total Jobs: all statuses
+  const talentsInP = DATA.talents.filter(t => inRange(t.postedDate, start, end));
+  // % Budget Used: all statuses, but only jobs that actually spent something — zero-spend jobs would dilute the rate.
+  const withSpend = talentsInP.filter(t => t.budgetUsed !== null && t.budgetUsed > 0);
+  const approved = withSpend.reduce((s, t) => s + (t.budgetApproved || 0), 0);
+  const used = withSpend.reduce((s, t) => s + (t.budgetUsed || 0), 0);
   return {
     total: inP.length,
     active: inP.filter(j => j.jobStatus === 'ACTIVE').length,
@@ -323,27 +323,7 @@ function fmtDays(v) { return v === null ? '—' : v.toFixed(1) + 'd'; }
 function fmtPct(v) { return v === null ? '—' : v.toFixed(1) + '%'; }
 function fmtNum(v) { return v === null ? '—' : v; }
 
-function renderKpiStatusFilter() {
-  const bar = document.getElementById('kpiStatusFilterBar');
-  bar.innerHTML = buildFilterGroup('kpiJobStatus', 'Job Status', uniqueValues(DATA.jobs, 'jobStatus'), kpiStatusFilter);
-  bar.querySelectorAll('[data-toggle]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      document.querySelectorAll('.filter-menu').forEach(m => { if (m.id !== `menu-${btn.dataset.toggle}`) m.classList.remove('open'); });
-      document.getElementById(`menu-${btn.dataset.toggle}`).classList.toggle('open');
-    });
-  });
-  bar.querySelectorAll('input[type=checkbox]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      if (cb.checked) kpiStatusFilter.add(cb.value); else kpiStatusFilter.delete(cb.value);
-      renderKpiStatusFilter();
-      renderKpis();
-    });
-  });
-}
-
 function renderKpis() {
-  renderKpiStatusFilter();
   const rangeVal = document.getElementById('rangeSelect').value;
   const { start, end, prevStart, prevEnd } = periodBounds(rangeVal);
   document.getElementById('periodLabel').textContent =
@@ -426,7 +406,7 @@ function renderMonthlyChart() {
   const labels = months.map(m => m.toLocaleString('default', { month: 'short', year: '2-digit' }));
   const values = months.map(m => {
     const mEnd = new Date(m.getFullYear(), m.getMonth() + 1, 1);
-    const inMonth = DATA.talents.filter(t => inRange(t.postedDate, m, mEnd) && passesKpiStatusFilter(t.jobStatus));
+    const inMonth = DATA.talents.filter(t => inRange(t.postedDate, m, mEnd) && SLA_STATUSES.includes(t.jobStatus));
     return average(inMonth.map(t => t[activeChartMetric]));
   });
 
@@ -571,23 +551,38 @@ function filterTalents() {
   );
 }
 
-// [label, width-in-px, extra-css-class]
+// [label, width-in-px, extra-css-class, group-label-or-null]
 const JOB_COLS = [
   ['Job ID', 56], ['Job Posted', 66], ['Job Title', 190, 'title-cell'], ['Status', 70],
   ['Posted→Claimed', 80], ['Claimed→Sent', 80], ['Sent→Hire', 74], ['Posted→Hire', 74],
   ['# AR Sent', 54], ['# Confirmed Apps', 62], ['# Talents Sent', 62],
 ];
 const TALENT_COLS = [
-  ['Job ID', 50], ['Job Posted', 64], ['Job Title', 140, 'title-cell'], ['Status', 64], ['Talent Name', 100],
-  ['Commitment', 60], ['Wkly Hrs', 42], ['Hrs Warn', 30], ['Onboarding', 32], ['ITOps', 32], ['Core Email', 32],
-  ['Topteam', 32], ['Correct Rpt', 32], ['% Used', 40], ['Budget', 30], ['55-Day Dec.', 66],
-  ['Decision', 150], ['Trial Warn', 30], ['Req?', 36], ['Job Closed', 34], ['Hrs Rmv', 30],
-  ['Email Rmv', 30], ['Topteam Rmv', 34], ['Offb. Warn', 34],
+  ['Job Posted', 60], ['Job Title', 160, 'title-cell'], ['Status', 62], ['Talent Name', 100],
+  ['Comm.', 50], ['Wkly Hrs', 40], ['Hrs Warn', 42],
+  ['ITOps', 42, '', 'Onboarding'], ['Core Email', 42, '', 'Onboarding'], ['Topteam', 42, '', 'Onboarding'], ['Correct Rpt', 42, '', 'Onboarding'],
+  ['% Used', 44], ['Budget', 42], ['55-Day Dec.', 62],
+  ['Decision', 150], ['Trial', 42], ['Req?', 36], ['Job Closed', 42], ['Hrs Rmv', 42],
+  ['Email Rmv', 42], ['Topteam Rmv', 42], ['Offb. Warn', 42],
 ];
 
 function renderColgroupAndHead(cols) {
   document.getElementById('colGroup').innerHTML = cols.map(c => `<col style="width:${c[1]}px">`).join('');
   document.getElementById('tableHead').innerHTML = cols.map(c => `<th class="${c[2]||''}" title="${esc(c[0])}">${esc(c[0])}</th>`).join('');
+
+  // Group header row: merge consecutive same-group columns into one labeled cell; ungrouped columns get a blank filler cell.
+  const groupHead = document.getElementById('tableGroupHead');
+  const cells = [];
+  let i = 0;
+  while (i < cols.length) {
+    const g = cols[i][3];
+    if (!g) { cells.push('<th class="blank"></th>'); i++; continue; }
+    let span = 1;
+    while (i + span < cols.length && cols[i + span][3] === g) span++;
+    cells.push(`<th colspan="${span}">${esc(g)}</th>`);
+    i += span;
+  }
+  groupHead.innerHTML = cells.join('');
 }
 
 function renderTable() {
@@ -620,7 +615,6 @@ function renderTable() {
     countEl.textContent = `${rows.length} of ${DATA.talents.length} talents`;
     body.innerHTML = rows.map(t => `
       <tr class="${t.isHP ? 'hp-row' : ''}" data-row-ref="${t.rowRef}">
-        <td>${esc(t.jobId)}</td>
         <td>${esc(t.postedDate)}</td>
         <td class="title-cell" title="${esc(t.jobTitle)}"><a class="job-link" href="${esc(t.jobLink)}" target="_blank">${esc(t.jobTitle)}</a></td>
         <td>${esc(t.jobStatus)}</td>
@@ -628,7 +622,6 @@ function renderTable() {
         <td>${esc(t.commitmentType)}</td>
         <td class="center">${t.weeklyHours ?? '—'}</td>
         <td class="circle">${esc(t.hoursWarning)}</td>
-        <td class="circle">${esc(t.onboardingStatus)}</td>
         <td class="circle">${esc(t.itopsTicketStatus)}</td>
         <td class="circle">${esc(t.coreEmailStatus)}</td>
         <td class="circle">${esc(t.topteamProfile)}</td>
