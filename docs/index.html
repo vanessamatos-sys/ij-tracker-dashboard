@@ -233,12 +233,33 @@ let accessToken = null;
 let tokenClient = null;
 let monthlyChart = null;
 
-const jobFilterState = { jobStatus: new Set(['ACTIVE']), pcFlag: new Set(), csFlag: new Set(), shFlag: new Set(), phFlag: new Set() };
-const talentFilterState = { jobStatus: new Set(['ACTIVE']), onboarding: new Set(), budget: new Set(), trial: new Set(), offboarding: new Set() };
+const jobFilterState = { jobStatus: new Set(['ACTIVE']), approver: new Set(), pcFlag: new Set(), csFlag: new Set(), shFlag: new Set(), phFlag: new Set() };
+const talentFilterState = { jobStatus: new Set(['ACTIVE']), approver: new Set(), onboarding: new Set(), budget: new Set(), trial: new Set(), offboarding: new Set() };
+const ONBOARDING_SUB_COLS = ['itopsTicketStatus', 'coreEmailStatus', 'topteamProfile', 'correctReportTopteam'];
+const OFFBOARDING_SUB_COLS = ['jobClosedStatus', 'hoursRemovedStatus', 'coreEmailRemovedStatus', 'topteamRemovedStatus'];
+// 🟢 selected => ALL sub-columns must be green; 🔴/⚪ selected => AT LEAST ONE sub-column matches that color.
+function matchesColorGroup(row, subColKeys, selected) {
+  if (selected.size === 0) return true;
+  const values = subColKeys.map(k => row[k]);
+  return [...selected].some(color => color === '🟢' ? values.every(v => v === '🟢') : values.includes(color));
+}
 let jobSort = { key: 'postedDate', dir: 'desc' };
 let talentSort = { key: 'postedDate', dir: 'desc' };
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function fmtMMYY(dateStr) {
+  if (!dateStr) return '—';
+  const [y, m] = dateStr.split('-');
+  return `${m}/${y.slice(2)}`;
+}
+function fmtDDMM(dateStr) {
+  if (!dateStr) return '—';
+  const [y, m, d] = dateStr.split('-');
+  return `${d}/${m}`;
+}
+const COMMITMENT_ABBR = { FULL_TIME: 'FT', HOURLY: 'HY', PART_TIME: 'PT' };
+function commAbbrev(c) { return COMMITMENT_ABBR[c] || (c || '—'); }
 
 function flagBadge(flag, text) {
   const cls = flag === '🔴' ? 'r' : flag === '🟡' ? 'y' : flag === '🟢' ? 'g' : 'n';
@@ -380,18 +401,25 @@ const dataLabelPlugin = {
   id: 'dataLabelPlugin',
   afterDatasetsDraw(chart) {
     const { ctx } = chart;
-    chart.getDatasetMeta(0).data.forEach((bar, i) => {
-      const v = chart.data.datasets[0].data[i];
-      if (v === null || v === undefined) return;
-      ctx.save();
-      ctx.fillStyle = '#262D3D';
-      ctx.font = '700 10px -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(v.toFixed(1), bar.x, bar.y - 5);
-      ctx.restore();
+    chart.data.datasets.forEach((ds, dsIndex) => {
+      chart.getDatasetMeta(dsIndex).data.forEach((bar, i) => {
+        const v = ds.data[i];
+        if (v === null || v === undefined) return;
+        ctx.save();
+        ctx.fillStyle = '#262D3D';
+        ctx.font = '700 9px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(v.toFixed(1), bar.x, bar.y - 4);
+        ctx.restore();
+      });
     });
   },
 };
+
+function monthlyAverage(m, mEnd) {
+  const inMonth = DATA.talents.filter(t => inRange(t.postedDate, m, mEnd) && SLA_STATUSES.includes(t.jobStatus));
+  return average(inMonth.map(t => t[activeChartMetric]));
+}
 
 function renderMonthlyChart() {
   if (!lastPeriod) return;
@@ -404,22 +432,30 @@ function renderMonthlyChart() {
     cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
   }
   const labels = months.map(m => m.toLocaleString('default', { month: 'short', year: '2-digit' }));
-  const values = months.map(m => {
-    const mEnd = new Date(m.getFullYear(), m.getMonth() + 1, 1);
-    const inMonth = DATA.talents.filter(t => inRange(t.postedDate, m, mEnd) && SLA_STATUSES.includes(t.jobStatus));
-    return average(inMonth.map(t => t[activeChartMetric]));
+  const thisYear = months.map(m => monthlyAverage(m, new Date(m.getFullYear(), m.getMonth() + 1, 1)));
+  const lastYear = months.map(m => {
+    const py = new Date(m.getFullYear() - 1, m.getMonth(), 1);
+    return monthlyAverage(py, new Date(py.getFullYear(), py.getMonth() + 1, 1));
   });
 
-  document.getElementById('chartTitle').textContent = `${METRIC_LABELS[activeChartMetric]}, average days by month`;
+  document.getElementById('chartTitle').textContent = `${METRIC_LABELS[activeChartMetric]} — average days by month, vs. same month last year`;
 
   const ctx = document.getElementById('monthlyChart');
   if (monthlyChart) monthlyChart.destroy();
   monthlyChart = new Chart(ctx, {
     type: 'bar',
-    data: { labels, datasets: [{ data: values, backgroundColor: '#183A9E', borderRadius: 4 }] },
+    data: {
+      labels,
+      datasets: [
+        { label: 'Same month, last year', data: lastYear, backgroundColor: '#B6D8FF', borderRadius: 4 },
+        { label: 'This year', data: thisYear, backgroundColor: '#183A9E', borderRadius: 4 },
+      ],
+    },
     options: {
       responsive: true, maintainAspectRatio: false, layout: { padding: { top: 16 } },
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 10, font: { size: 10 }, color: '#49526A' } },
+      },
       scales: {
         y: { display: false, beginAtZero: true },
         x: { grid: { display: false } },
@@ -457,6 +493,7 @@ function renderFilterBar() {
   if (activeView === 'job') {
     bar.innerHTML =
       buildFilterGroup('jobStatus', 'Job Status', uniqueValues(DATA.jobs, 'jobStatus'), jobFilterState.jobStatus) +
+      buildFilterGroup('approver', 'Approver', uniqueValues(DATA.jobs, 'approver'), jobFilterState.approver) +
       buildFilterGroup('pcFlag', 'Posted→Claimed Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.pcFlag) +
       buildFilterGroup('csFlag', 'Claimed→Sent Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.csFlag) +
       buildFilterGroup('shFlag', 'Sent→Hire Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.shFlag) +
@@ -472,6 +509,7 @@ function renderFilterBar() {
   } else {
     bar.innerHTML =
       buildFilterGroup('jobStatus', 'Job Status', uniqueValues(DATA.talents, 'jobStatus'), talentFilterState.jobStatus) +
+      buildFilterGroup('approver', 'Approver', uniqueValues(DATA.talents, 'approver'), talentFilterState.approver) +
       buildFilterGroup('onboarding', 'Onboarding Status', ['🟢','🔴','⚪'], talentFilterState.onboarding) +
       buildFilterGroup('budget', 'Budget Status', ['🟢','🟡','🔴','⚪'], talentFilterState.budget) +
       buildFilterGroup('trial', 'Trial Warning', ['🟢','🟡','🔴','⚪'], talentFilterState.trial) +
@@ -537,17 +575,19 @@ function applySort(rows, sort) {
 
 function filterJobs() {
   return DATA.jobs.filter(j =>
-    (jobFilterState.jobStatus.size === 0 || jobFilterState.jobStatus.has(j.jobStatus))
+    (jobFilterState.jobStatus.size === 0 || jobFilterState.jobStatus.has(j.jobStatus)) &&
+    (jobFilterState.approver.size === 0 || jobFilterState.approver.has(j.approver))
   );
 }
 
 function filterTalents() {
   return DATA.talents.filter(t =>
     (talentFilterState.jobStatus.size === 0 || talentFilterState.jobStatus.has(t.jobStatus)) &&
-    (talentFilterState.onboarding.size === 0 || talentFilterState.onboarding.has(t.onboardingStatus)) &&
+    (talentFilterState.approver.size === 0 || talentFilterState.approver.has(t.approver)) &&
+    matchesColorGroup(t, ONBOARDING_SUB_COLS, talentFilterState.onboarding) &&
     (talentFilterState.budget.size === 0 || talentFilterState.budget.has(t.budgetStatus)) &&
     (talentFilterState.trial.size === 0 || talentFilterState.trial.has(t.decisionWarning)) &&
-    (talentFilterState.offboarding.size === 0 || talentFilterState.offboarding.has(t.offboardingWarning))
+    matchesColorGroup(t, OFFBOARDING_SUB_COLS, talentFilterState.offboarding)
   );
 }
 
@@ -558,12 +598,13 @@ const JOB_COLS = [
   ['# AR Sent', 54], ['# Confirmed Apps', 62], ['# Talents Sent', 62],
 ];
 const TALENT_COLS = [
-  ['Job Posted', 56], ['Job Title', 128, 'title-cell'], ['Status', 60], ['Talent Name', 85],
-  ['Comm.', 48], ['Wkly Hrs', 38], ['Hrs Warn', 42],
-  ['ITOps', 42, '', 'Onboarding'], ['Core Email', 42, '', 'Onboarding'], ['Topteam', 42, '', 'Onboarding'], ['Correct Rpt', 42, '', 'Onboarding'],
-  ['% Used', 42], ['Budget', 42], ['55-Day Dec.', 56],
-  ['Decision', 140], ['Trial', 42], ['Req?', 34], ['Job Closed', 42], ['Hrs Rmv', 42],
-  ['Email Rmv', 42], ['Topteam Rmv', 42], ['Offb. Warn', 42],
+  ['Job Posted', 52], ['Job Title', 100, 'title-cell'], ['Status', 58], ['Talent Name', 70], ['Approver', 76],
+  ['Comm.', 42], ['Wkly Hrs', 38], ['HRS', 40],
+  ['ITOps', 42, '', 'Onboarding'], ['Core Email', 42, '', 'Onboarding'], ['TTEAM', 42, '', 'Onboarding'], ['REPORT OK', 56, '', 'Onboarding'],
+  ['% Used', 42], ['Budget', 40], ['55-Day Dec.', 54],
+  ['Decision', 136], ['Trial', 40], ['Req?', 34],
+  ['Job Closed', 42, '', 'Offboarding'], ['Hrs Rmv', 42, '', 'Offboarding'], ['Email Rmv', 42, '', 'Offboarding'], ['Topteam Rmv', 46, '', 'Offboarding'],
+  ['Offb. Warn', 42],
 ];
 
 function renderColgroupAndHead(cols) {
@@ -615,11 +656,12 @@ function renderTable() {
     countEl.textContent = `${rows.length} of ${DATA.talents.length} talents`;
     body.innerHTML = rows.map(t => `
       <tr class="${t.isHP ? 'hp-row' : ''}" data-row-ref="${t.rowRef}">
-        <td>${esc(t.postedDate)}</td>
+        <td class="center">${fmtMMYY(t.postedDate)}</td>
         <td class="title-cell" title="${esc(t.jobTitle)}"><a class="job-link" href="${esc(t.jobLink)}" target="_blank">${esc(t.jobTitle)}</a></td>
-        <td>${esc(t.jobStatus)}</td>
+        <td class="center">${esc(t.jobStatus)}</td>
         <td>${esc(t.talentName)}</td>
-        <td>${esc(t.commitmentType)}</td>
+        <td>${esc(t.approver) || '—'}</td>
+        <td>${commAbbrev(t.commitmentType)}</td>
         <td class="center">${t.weeklyHours ?? '—'}</td>
         <td class="circle">${esc(t.hoursWarning)}</td>
         <td class="circle">${esc(t.itopsTicketStatus)}</td>
@@ -628,7 +670,7 @@ function renderTable() {
         <td class="circle">${esc(t.correctReportTopteam)}</td>
         <td class="center">${t.pctUsed !== null ? t.pctUsed.toFixed(0) + '%' : '—'}</td>
         <td class="circle">${esc(t.budgetStatus)}</td>
-        <td class="center">${esc(t.decisionDate) || '—'}</td>
+        <td class="center">${fmtDDMM(t.decisionDate)}</td>
         <td class="decision-cell center">
           <select class="decision-select" data-row-ref="${t.rowRef}">
             ${DECISION_OPTIONS.map(o => `<option value="${esc(o)}" ${o === t.decision ? 'selected' : ''}>${o || '(none)'}</option>`).join('')}

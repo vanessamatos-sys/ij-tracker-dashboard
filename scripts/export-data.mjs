@@ -94,6 +94,8 @@ function buildJobs(dbRows) {
       arSent: num(primary[53]),
       confirmedApplications: num(primary[54]),
       talentsSent: num(primary[55]),
+      costCenter: primary[56] || '',
+      approver: primary[57] || '',
       isHP: HP_JOB_IDS.includes(jobId),
     });
   }
