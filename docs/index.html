@@ -602,7 +602,7 @@ const TALENT_COLS = [
   ['Comm.', 42], ['Wkly Hrs', 38], ['HRS', 40],
   ['ITOps', 42, '', 'Onboarding'], ['Core Email', 42, '', 'Onboarding'], ['TTEAM', 42, '', 'Onboarding'], ['REPORT OK', 56, '', 'Onboarding'],
   ['% Used', 42], ['Budget', 40], ['55-Day Dec.', 54],
-  ['Decision', 136], ['Trial', 40], ['Req?', 34],
+  ['Decision', 136], ['End Date', 60], ['Trial', 40], ['Req?', 34],
   ['Job Closed', 42, '', 'Offboarding'], ['Hrs Rmv', 42, '', 'Offboarding'], ['Email Rmv', 42, '', 'Offboarding'], ['Topteam Rmv', 46, '', 'Offboarding'],
 ];
 
@@ -675,6 +675,7 @@ function renderTable() {
           <button class="save-btn" data-row-ref="${t.rowRef}" disabled>Save</button>
           <span class="save-status" id="save-status-${t.rowRef}"></span>
         </td>
+        <td class="center">${fmtDDMM(t.endDate)}</td>
         <td class="circle">${esc(t.decisionWarning)}</td>
         <td class="center">${esc(t.required)}</td>
         <td class="circle">${esc(t.jobClosedStatus)}</td>
@@ -747,7 +748,7 @@ async function saveDecision(rowRef) {
   try {
     const token = await getToken();
     statusEl.textContent = 'Saving…';
-    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Talent%20Tracker!AK${rowRef}?valueInputOption=USER_ENTERED`;
+    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Talent%20Tracker!AM${rowRef}?valueInputOption=USER_ENTERED`;
     const writeRes = await fetch(writeUrl, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -757,20 +758,21 @@ async function saveDecision(rowRef) {
 
     // Sheet formulas recalc instantly server-side; re-read the row's offboarding cells.
     statusEl.textContent = 'Refreshing…';
-    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Talent%20Tracker!A${rowRef}:AV${rowRef}`;
+    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Talent%20Tracker!A${rowRef}:AY${rowRef}`;
     const readRes = await fetch(readUrl, { headers: { Authorization: `Bearer ${token}` } });
     const readJson = await readRes.json();
     const r = (readJson.values && readJson.values[0]) || [];
     const t = DATA.talents.find(x => x.rowRef === Number(rowRef));
     if (t && r.length) {
-      t.decision = r[36] || '';
-      t.decisionWarning = r[37] || '';
-      t.required = r[38] || '';
-      t.jobClosedStatus = r[40] || '';
-      t.hoursRemovedStatus = r[42] || '';
-      t.coreEmailRemovedStatus = r[44] || '';
-      t.topteamRemovedStatus = r[46] || '';
-      t.offboardingWarning = r[47] || '';
+      t.decision = r[38] || '';
+      t.endDate = r[39] || null;
+      t.decisionWarning = r[40] || '';
+      t.required = r[41] || '';
+      t.jobClosedStatus = r[43] || '';
+      t.hoursRemovedStatus = r[45] || '';
+      t.coreEmailRemovedStatus = r[47] || '';
+      t.topteamRemovedStatus = r[49] || '';
+      t.offboardingWarning = r[50] || '';
     }
     statusEl.textContent = 'Saved ✓';
     btn.disabled = true;

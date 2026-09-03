@@ -10,7 +10,7 @@ import { writeFile, mkdir } from 'node:fs/promises';
 
 const SHEET_ID = '1n1aqgvOnbdwxJXPzNpe-AMa2mzKBtMeE4q5exXN1rwo';
 const DATABASE_RANGE = 'Database!A2:BG3000';
-const TRACKER_RANGE = "Talent Tracker!A3:AY3000";
+const TRACKER_RANGE = "Talent Tracker!A3:AZ3000";
 
 function base64url(input) {
   return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -133,14 +133,15 @@ function buildTalents(trackerRows) {
       budgetStatus: r[34] || '',
       decisionDate: r[37] || null,
       decision: r[38] || '',
-      decisionWarning: r[39] || '',
-      required: r[40] || '',
-      jobClosedStatus: r[42] || '',
-      hoursRemovedStatus: r[44] || '',
-      coreEmailRemovedStatus: r[46] || '',
-      topteamRemovedStatus: r[48] || '',
-      offboardingWarning: r[49] || '',
-      isHighPriority: r[50] === 'TRUE',
+      endDate: r[39] || null,
+      decisionWarning: r[40] || '',
+      required: r[41] || '',
+      jobClosedStatus: r[43] || '',
+      hoursRemovedStatus: r[45] || '',
+      coreEmailRemovedStatus: r[47] || '',
+      topteamRemovedStatus: r[49] || '',
+      offboardingWarning: r[50] || '',
+      isHighPriority: r[51] === 'TRUE',
     }));
 }
 
