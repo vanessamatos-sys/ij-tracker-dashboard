@@ -2,11 +2,12 @@ name: Refresh tracker data
 
 on:
   schedule:
-    - cron: '0 6 * * *'  # daily, 06:00 UTC
+    - cron: '0 6 * * *'  # daily, 06:00 UTC — raw sources -> Database -> dashboard, in sequence
   workflow_dispatch: {}
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   refresh:
@@ -17,6 +18,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Refresh Database from data sources (BigQuery)
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+        run: node scripts/refresh-database.mjs
 
       - name: Export Sheet data to JSON
         env:
@@ -30,3 +36,42 @@ jobs:
           git add docs/data/tracker-data.json
           git diff --cached --quiet && echo "No changes" || git commit -m "chore: daily data refresh"
           git push
+
+      - name: Notify on partial failure
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const LABEL = 'data-refresh-failure';
+            if (!fs.existsSync('refresh-failures.json')) return;
+            const failures = JSON.parse(fs.readFileSync('refresh-failures.json', 'utf8'));
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo, labels: LABEL, state: 'open',
+            });
+
+            if (!failures.length) {
+              for (const issue of openIssues) {
+                await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, body: 'Resolved — today\'s run completed with no skipped groups.' });
+                await github.rest.issues.update({ owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, state: 'closed' });
+              }
+              return;
+            }
+
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = failures.map(f => `- **${f.group}**: ${f.error} (_${f.timestamp}_)`).join('\n')
+              + `\n\nThese data group(s) were **not** updated today — their existing Sheet values were left as-is; everything else (including the dashboard export) ran normally.\n\nLatest run: ${runUrl}`;
+
+            if (openIssues.length) {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: openIssues[0].number, body: `Still failing as of today:\n\n${body}` });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `Daily data refresh: ${failures.length} group(s) skipped`,
+                body,
+                labels: [LABEL],
+                assignees: ['vanessamatos-sys'],
+              });
+            }
