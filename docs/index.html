@@ -228,7 +228,7 @@ let tokenClient = null;
 let monthlyChart = null;
 
 const jobFilterState = { jobStatus: new Set(['ACTIVE']), approver: new Set(), highPriority: new Set(), pcFlag: new Set(), csFlag: new Set(), shFlag: new Set(), phFlag: new Set() };
-const talentFilterState = { jobStatus: new Set(['ACTIVE']), approver: new Set(), highPriority: new Set(), onboarding: new Set(), budget: new Set(), trial: new Set(), offboarding: new Set() };
+const talentFilterState = { jobStatus: new Set(['ACTIVE']), approver: new Set(), highPriority: new Set(), hrs: new Set(), onboarding: new Set(), budget: new Set(), trial: new Set(), offboarding: new Set() };
 const ONBOARDING_SUB_COLS = ['itopsTicketStatus', 'coreEmailStatus', 'topteamProfile', 'correctReportTopteam'];
 const OFFBOARDING_SUB_COLS = ['jobClosedStatus', 'hoursRemovedStatus', 'coreEmailRemovedStatus', 'topteamRemovedStatus'];
 // 🟢 selected => ALL sub-columns must be green; 🔴/⚪ selected => AT LEAST ONE sub-column matches that color.
@@ -511,6 +511,7 @@ function renderFilterBar() {
       buildFilterGroup('jobStatus', 'Job Status', uniqueValues(DATA.talents, 'jobStatus'), talentFilterState.jobStatus) +
       buildFilterGroup('approver', 'Approver', uniqueValues(DATA.talents, 'approver'), talentFilterState.approver) +
       buildFilterGroup('highPriority', 'High Priority Job', ['Yes','No'], talentFilterState.highPriority) +
+      buildFilterGroup('hrs', 'HRS', ['🟢','🟡','🔴','⚪'], talentFilterState.hrs) +
       buildFilterGroup('onboarding', 'Onboarding Status', ['🟢','🔴','⚪'], talentFilterState.onboarding) +
       buildFilterGroup('budget', 'Budget Status', ['🟢','🟡','🔴','⚪'], talentFilterState.budget) +
       buildFilterGroup('trial', 'Trial Warning', ['🟢','🟡','🔴','⚪'], talentFilterState.trial) +
@@ -592,6 +593,7 @@ function filterTalents() {
     (talentFilterState.jobStatus.size === 0 || talentFilterState.jobStatus.has(t.jobStatus)) &&
     (talentFilterState.approver.size === 0 || talentFilterState.approver.has(t.approver)) &&
     (talentFilterState.highPriority.size === 0 || talentFilterState.highPriority.has(yesNo(t.isHighPriority))) &&
+    (talentFilterState.hrs.size === 0 || talentFilterState.hrs.has(t.hoursWarning)) &&
     matchesColorGroup(t, ONBOARDING_SUB_COLS, talentFilterState.onboarding) &&
     (talentFilterState.budget.size === 0 || talentFilterState.budget.has(t.budgetStatus)) &&
     (talentFilterState.trial.size === 0 || talentFilterState.trial.has(t.decisionWarning)) &&
