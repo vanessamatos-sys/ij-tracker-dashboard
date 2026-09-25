@@ -108,7 +108,9 @@
   .filter-menu label { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px; cursor: pointer; font-size: 12px; }
   .filter-menu label:hover { background: var(--surface-page); }
   .reset-btn { font: inherit; padding: 5px 11px; border-radius: 999px; border: 1px solid transparent; background: transparent; color: var(--ink-secondary); cursor: pointer; font-size: 11.5px; text-decoration: underline; }
-  .sort-select { font: inherit; padding: 5px 9px; border-radius: 999px; border: 1px solid #ccd0d8; background: #fff; margin-left: auto; font-size: 11.5px; }
+  .export-btn { font: inherit; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--accent-blue); background: #fff; color: var(--accent-blue); cursor: pointer; font-size: 11.5px; font-weight: 600; margin-left: auto; }
+  .export-btn:hover { background: var(--accent-blue); color: #fff; }
+  .sort-select { font: inherit; padding: 5px 9px; border-radius: 999px; border: 1px solid #ccd0d8; background: #fff; font-size: 11.5px; }
   .result-count { font-size: 10.5px; color: var(--ink-secondary); margin-bottom: 6px; }
 
   /* ---------- Table ---------- */
@@ -496,6 +498,7 @@ function renderFilterBar() {
       buildFilterGroup('shFlag', 'Sent→Hire Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.shFlag) +
       buildFilterGroup('phFlag', 'Posted→Hire Flag', ['🟢','🟡','🔴','⚪'], jobFilterState.phFlag) +
       `<button class="reset-btn" id="resetFilters">Reset filters</button>
+       <button class="export-btn" id="exportCsv">⬇ Export to Excel</button>
        <select class="sort-select" id="sortSelect">
          <option value="postedDate:desc">Posted date (newest)</option>
          <option value="postedDate:asc">Posted date (oldest)</option>
@@ -513,6 +516,7 @@ function renderFilterBar() {
       buildFilterGroup('trial', 'Trial Warning', ['🟢','🟡','🔴','⚪'], talentFilterState.trial) +
       buildFilterGroup('offboarding', 'Offboarding Warning', ['🟢','🔴','⚪'], talentFilterState.offboarding) +
       `<button class="reset-btn" id="resetFilters">Reset filters</button>
+       <button class="export-btn" id="exportCsv">⬇ Export to Excel</button>
        <select class="sort-select" id="sortSelect">
          <option value="postedDate:desc">Posted date (newest)</option>
          <option value="postedDate:asc">Posted date (oldest)</option>
@@ -545,6 +549,8 @@ function renderFilterBar() {
     renderFilterBar();
     renderTable();
   });
+  const exportBtn = document.getElementById('exportCsv');
+  if (exportBtn) exportBtn.addEventListener('click', exportCurrentTable);
   const sortSelect = document.getElementById('sortSelect');
   if (sortSelect) {
     const cur = activeView === 'job' ? jobSort : talentSort;
@@ -686,6 +692,64 @@ function renderTable() {
         <td class="circle">${esc(t.topteamRemovedStatus)}</td>
       </tr>`).join('');
     wireDecisionEditing();
+  }
+}
+
+/* ---------------- Export to Excel (CSV) — respects current filters + sort ---------------- */
+function csvCell(v) {
+  const s = v === null || v === undefined ? '' : String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function downloadCsv(filename, headerRow, dataRows) {
+  const csv = [headerRow, ...dataRows].map(row => row.map(csvCell).join(',')).join('\r\n');
+  // Leading BOM so Excel opens the UTF-8 file (emoji flags, arrows) without mangling characters.
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportCurrentTable() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (activeView === 'job') {
+    const rows = applySort(filterJobs(), jobSort);
+    const header = ['Job ID', 'Job Posted', 'Job Title', 'Status',
+      'Posted→Claimed (days)', 'Posted→Claimed Flag', 'Claimed→Sent (days)', 'Claimed→Sent Flag',
+      'Sent→Hire (days)', 'Sent→Hire Flag', 'Posted→Hire (days)', 'Posted→Hire Flag',
+      '# AR Sent', '# Confirmed Apps', '# Talents Sent'];
+    const data = rows.map(j => [
+      j.jobId, j.postedDate, j.jobTitle, j.jobStatus,
+      dayLabel(j, 'postedToClaimed'), talentFlagFor(j, 'postedToClaimed'),
+      dayLabel(j, 'claimedToSent'), talentFlagFor(j, 'claimedToSent'),
+      dayLabel(j, 'sentToHire'), talentFlagFor(j, 'sentToHire'),
+      dayLabel(j, 'postedToHire'), talentFlagFor(j, 'postedToHire'),
+      j.arSent ?? '', j.confirmedApplications ?? '', j.talentsSent ?? '',
+    ]);
+    downloadCsv(`ij-tracker-job-level-${today}.csv`, header, data);
+  } else {
+    const rows = applySort(filterTalents(), talentSort);
+    const header = ['Job Posted', 'Job Title', 'Status', 'Talent Name', 'Approver',
+      'Commitment Type', 'Weekly Hours', 'Hours Warning',
+      'ITOps Ticket Status', 'Core Email Status', 'Topteam Profile', 'Correct Report on Topteam',
+      '% Budget Used', 'Budget Status', '55-Day Decision Date',
+      'Decision', 'End Date', 'Decision Warning', 'Required?',
+      'Job Closed Status', 'Hours Removed Status', 'Core Email Removed Status', 'Topteam Removed Status'];
+    const data = rows.map(t => [
+      t.postedDate, t.jobTitle, t.jobStatus, t.talentName, t.approver || '',
+      t.commitmentType || '', t.weeklyHours ?? '', t.hoursWarning || '',
+      t.itopsTicketStatus || '', t.coreEmailStatus || '', t.topteamProfile || '', t.correctReportTopteam || '',
+      t.pctUsed !== null && t.pctUsed !== undefined ? t.pctUsed.toFixed(0) + '%' : '',
+      t.budgetStatus || '', t.decisionDate || '',
+      t.decision || '', t.endDate || '', t.decisionWarning || '', t.required || '',
+      t.jobClosedStatus || '', t.hoursRemovedStatus || '', t.coreEmailRemovedStatus || '', t.topteamRemovedStatus || '',
+    ]);
+    downloadCsv(`ij-tracker-talent-level-${today}.csv`, header, data);
   }
 }
 
