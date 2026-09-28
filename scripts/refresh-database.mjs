@@ -1,9 +1,14 @@
-// Refreshes the parts of the Database tab that have a verified BigQuery source:
-//   1. Topteam Profile/Position/Dates/Manager/Org-Active (Database!AB:AH)
-//   2. High Priority Job [HP] tag (Database!BG)
+// Refreshes the parts of the Database tab that have a verified source:
+//   1. Topteam Profile/Position/Dates/Manager/Org-Active (Database!AB:AH) — BigQuery CDR.TopTeamTalent
+//   2. High Priority Job [HP] tag (Database!BG) — BigQuery CDR.JobNote
+//   3. ITOps Direct Manager (Database!AN) — the "Network Contractor Onboarding Log" Google Sheet
+//      (Zapier-fed from ITOps). Replaces the old Jira-ticket-parsing approach entirely — Jira is
+//      no longer queried for this.
 //
-// Everything else in Database (Job/Engagement/ITOps/Budget dates, etc.) has no confirmed
-// source yet and is intentionally left untouched — see AGENTS.md / project memory.
+// Everything else in Database (other ITOps/Budget/Trial fields, etc.) has no confirmed source
+// yet and is intentionally left untouched — see AGENTS.md / project memory.
+//
+// Row count is discovered dynamically each run (not hardcoded) since new jobs get appended.
 //
 // Design: each data group is independent. If a group's BigQuery query fails, or comes back
 // looking broken (e.g. the source table is unexpectedly empty), that group's write is SKIPPED
@@ -18,8 +23,8 @@ import { createSign } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 
 const SHEET_ID = '1n1aqgvOnbdwxJXPzNpe-AMa2mzKBtMeE4q5exXN1rwo';
+const ZAPIER_SHEET_ID = '1mGv6dPXpxcnHQEueOGHnX1ISQ4mmTZrCPTCrZqXbJ1g';
 const BQ_PROJECT = 'certified-data-repository';
-const DB_ROWS = 1132; // Database!2:1133
 const failures = [];
 
 function base64url(input) {
@@ -61,15 +66,15 @@ async function bqQuery(token, sql) {
   return (json.rows || []).map((r) => Object.fromEntries(r.f.map((c, i) => [fields[i], c.v])));
 }
 
-async function fetchRange(token, range) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(range)}`;
+async function fetchRange(token, range, spreadsheetId = SHEET_ID) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error(`Sheets fetch failed for ${range}: ${res.status} ${await res.text()}`);
   return (await res.json()).values || [];
 }
 
-async function updateRange(token, range, values) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
+async function updateRange(token, range, values, spreadsheetId = SHEET_ID) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
   const res = await fetch(url, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -78,9 +83,19 @@ async function updateRange(token, range, values) {
   if (!res.ok) throw new Error(`Sheets write failed for ${range}: ${res.status} ${await res.text()}`);
 }
 
+// Database's row count grows over time as new jobs are backfilled — discover it fresh each run
+// rather than hardcoding, so newly appended rows are always in scope.
+async function getDbRowCount(sheetsToken) {
+  const ids = await fetchRange(sheetsToken, 'Database!A2:A5000');
+  let n = ids.length;
+  while (n > 0 && !ids[n - 1]?.[0]) n--; // trim any trailing blank rows Sheets may include
+  if (n === 0) throw new Error('Database appears empty — refusing to proceed');
+  return n;
+}
+
 // --- Group 1: Topteam data (CDR.TopTeamTalent) ---------------------------------------------
-async function refreshTopteam(sheetsToken, bqToken) {
-  const dbRows = await fetchRange(sheetsToken, 'Database!A2:BG1133');
+async function refreshTopteam(sheetsToken, bqToken, dbRowCount) {
+  const dbRows = await fetchRange(sheetsToken, `Database!A2:BG${dbRowCount + 1}`);
   const ttRows = await bqQuery(
     bqToken,
     `SELECT TalentId, TopTeamTalentId, Email, TopTeamTalentName, PositionName,
@@ -98,7 +113,7 @@ async function refreshTopteam(sheetsToken, bqToken) {
 
   const values = [];
   let matched = 0;
-  for (let i = 0; i < DB_ROWS; i++) {
+  for (let i = 0; i < dbRowCount; i++) {
     const row = dbRows[i] || [];
     const talentId = row[18] || '';
     const toptalEmail = (row[24] || '').toLowerCase();
@@ -124,13 +139,13 @@ async function refreshTopteam(sheetsToken, bqToken) {
   // (e.g. columns shifted), not that everyone left Topteam overnight.
   if (matched === 0) throw new Error('Topteam join produced 0 matches — refusing to write, looks like a broken join rather than reality');
 
-  await updateRange(sheetsToken, 'Database!AB2:AH1133', values);
-  return { matched, total: DB_ROWS };
+  await updateRange(sheetsToken, `Database!AB2:AH${dbRowCount + 1}`, values);
+  return { matched, total: dbRowCount };
 }
 
 // --- Group 2: High Priority Job [HP] tag (CDR.JobNote) --------------------------------------
-async function refreshHighPriority(sheetsToken, bqToken) {
-  const dbRows = await fetchRange(sheetsToken, 'Database!A2:A1133');
+async function refreshHighPriority(sheetsToken, bqToken, dbRowCount) {
+  const dbRows = await fetchRange(sheetsToken, `Database!A2:A${dbRowCount + 1}`);
   const jobIds = [...new Set(dbRows.map((r) => r[0]).filter(Boolean))];
   if (jobIds.length === 0) throw new Error('No Job IDs found in Database — refusing to query JobNote');
 
@@ -143,18 +158,55 @@ async function refreshHighPriority(sheetsToken, bqToken) {
   const hpJobIds = new Set(noteRows.map((r) => String(r.JobId)));
 
   const values = dbRows.map((r) => [hpJobIds.has(r[0]) ? 'TRUE' : 'FALSE']);
-  await updateRange(sheetsToken, 'Database!BG2:BG1133', values);
+  await updateRange(sheetsToken, `Database!BG2:BG${dbRowCount + 1}`, values);
   return { hpCount: hpJobIds.size, total: jobIds.length };
+}
+
+// --- Group 3: ITOps Direct Manager (Network Contractor Onboarding Log, Zapier-fed) ----------
+// Replaces the old Jira-ticket-layout-parsing approach — Jira is no longer queried for this.
+// Only rows with a resolvable Job ID and a non-blank Direct Manager are touched; every other
+// row's existing value (including ones this sheet doesn't cover) is left as-is.
+async function refreshDirectManager(sheetsToken, dbRowCount) {
+  const logRows = await fetchRange(sheetsToken, 'zapier-in!A2:R1010', ZAPIER_SHEET_ID);
+  if (logRows.length === 0) throw new Error('Network Contractor Onboarding Log returned 0 rows — refusing to write');
+
+  const byJobId = new Map();
+  for (const r of logRows) {
+    const jobLink = r[1] || '';
+    const directManager = r[4] || '';
+    const jobId = jobLink.match(/jobs\/(\d+)/)?.[1];
+    if (jobId && directManager) byJobId.set(jobId, directManager); // later rows (updates) win
+  }
+  if (byJobId.size === 0) throw new Error('No Job ID + Direct Manager pairs resolved from the onboarding log — refusing to write');
+
+  const dbJobIds = await fetchRange(sheetsToken, `Database!A2:A${dbRowCount + 1}`);
+  let updated = 0;
+  const updates = [];
+  dbJobIds.forEach((r, i) => {
+    const dm = byJobId.get(r[0]);
+    if (dm) {
+      updates.push({ row: i + 2, value: dm });
+      updated++;
+    }
+  });
+
+  for (const u of updates) {
+    await updateRange(sheetsToken, `Database!AN${u.row}`, [[u.value]]);
+  }
+  return { updated, sourceRows: byJobId.size };
 }
 
 async function main() {
   const sheetsToken = await getAccessToken('https://www.googleapis.com/auth/spreadsheets');
   const bqToken = await getAccessToken('https://www.googleapis.com/auth/bigquery.readonly');
+  const dbRowCount = await getDbRowCount(sheetsToken);
+  console.log(`Database has ${dbRowCount} data rows.`);
 
   const results = {};
   for (const [name, fn] of [
-    ['topteam', () => refreshTopteam(sheetsToken, bqToken)],
-    ['highPriority', () => refreshHighPriority(sheetsToken, bqToken)],
+    ['topteam', () => refreshTopteam(sheetsToken, bqToken, dbRowCount)],
+    ['highPriority', () => refreshHighPriority(sheetsToken, bqToken, dbRowCount)],
+    ['directManager', () => refreshDirectManager(sheetsToken, dbRowCount)],
   ]) {
     try {
       results[name] = await fn();
