@@ -1,7 +1,7 @@
 # IJ Tracker Dashboard — Onboarding / Handoff Guide
 
 **Owner as of this handoff:** Leo (taking over from Vanessa Matos)
-**Last updated:** 2026-09-29
+**Last updated:** 2026-09-29 (confirmed Leo has BigQuery access)
 
 This document is everything needed to pick up ownership of the Internal Jobs (IJ) Tracker system — the Google Sheet, the automation, and the public dashboard — with no prior context.
 
@@ -140,7 +140,7 @@ Note: not every job under this filter is `[IJ]`-titled — some are `[TCP]` or u
 - [x] GitHub repo collaborator access (done by Vanessa)
 - [ ] **Google Sheet edit access** — confirm Leo has Editor (not just Viewer) on `1n1aqgvOnbdwxJXPzNpe-AMa2mzKBtMeE4q5exXN1rwo`. Separate from GitHub; Vanessa needs to share it directly in Google Sheets if not already done.
 - [ ] **Onboarding log sheet access** — Leo may also want direct read access to `1mGv6dPXpxcnHQEueOGHnX1ISQ4mmTZrCPTCrZqXbJ1g` for his own visibility (separate from the service account fix in §2, which is what the *automation* needs).
-- [ ] **BigQuery access** — Leo needs his own access to `certified-data-repository` (datasets `CDR`, `Staging` at minimum) if he'll run any manual queries/backfills himself, separate from the service account used by the automation.
+- [x] **BigQuery access** — confirmed Leo already has access to `certified-data-repository`. Note: this does NOT unblock new-job automation (§2a) — the internal/client distinction genuinely is not queryable in BigQuery, for anyone.
 - [ ] **Toptal Platform staff-api access** — needed if Leo will run the job-backfill script himself (uses his own Platform login via the session's connector, no separate credential to hand off).
 - [ ] **Fix the Direct Manager sharing permission** (§2) — the one concrete blocking action item.
 - [ ] **Decide on new-job backfill cadence** (§2, §2a) — automation is blocked on either a Platform API service credential or the Maestro scheduler coming back online; manual re-runs are the only option until then.
