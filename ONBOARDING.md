@@ -47,6 +47,20 @@ GitHub Actions workflow `.github/workflows/refresh-data.yml`, runs daily at **06
 - On 2026-09-27/28, I did a **one-time manual backfill** of 75 new internal jobs (postings from Aug 28 – Sep 24 that weren't yet in the Sheet) using the Toptal Platform staff-api (GraphQL), not BigQuery — see §4. This should be repeated periodically (weekly? monthly?) until/unless it gets built into the daily automation. **This is the single biggest thing Leo should decide on early:** either (a) periodically re-run this manual backfill, or (b) invest in wiring it into `refresh-database.mjs` as a 4th automated group.
 - Several `Database` fields have no confirmed automatable source at all (see §5 — Known Gaps).
 
+### 2a. Why new-job discovery can't be automated yet (investigated 2026-09-29, don't re-litigate this without new info)
+
+Vanessa asked for the new-job backfill (§2) to be made fully automatic. I investigated three paths in depth:
+
+1. **BigQuery-only discovery — proven impossible, not just unresourced.** Checked ~15+ tables across `CDR` and `Staging` (`JobDetail`, `JobDailyState`, `JobCompanyRepresentative`, `DataCompanyRepresentative`, `AvailabilityRequest`, `Engagement`, etc.) hunting for *any* field that would let a query distinguish "this new Job ID is internal Toptal hiring" from the thousands of ordinary client jobs posted every day. **Every table with a Client/Company link excludes internal jobs entirely** (same filtering as `CDR.Job`). The only tables that include internal jobs (`JobStatus`, `JobPerformedAction`, `JobNote`, `JobSkill`) have no client-identifying field at all. This means **giving anyone more BigQuery access does not help** — the distinguishing data isn't queryable there for anyone, regardless of permissions.
+2. **GitHub Actions calling staff-api directly — impossible.** The staff-api token is short-lived and tied to whoever's interactive Maestro session is calling it; it cannot be exported as a long-lived secret for an unattended runner.
+3. **A Maestro-native scheduled cloud agent** (distinct from GitHub Actions — runs under a real logged-in Toptal/Maestro account, so it *would* have staff-api access) — this is the right architecture on paper, but the scheduling service was returning connection errors when I tried to set it up on 2026-09-29. Worth retrying; if it's back up, this is the path to pursue.
+
+**Bottom line — two real options, and only these two:**
+- **(A)** Get a genuine Platform API *service* credential (not a personal login) from whoever administers Toptal's staff-api, so the daily GitHub Actions job can call it directly — same category of ask as the CDR team's BigQuery grant that unblocked Topteam/HP.
+- **(B)** Get the Maestro scheduled-agent feature working, and point a recurring cloud-agent routine at the backfill script instead of GitHub Actions.
+
+Until one of those lands, new-job discovery stays a **manual, periodic task** (re-run the staff-api script in §4a from an interactive session with staff-api access).
+
 ---
 
 ## 3. Critical gotchas — read before editing formulas or rows
@@ -129,5 +143,5 @@ Note: not every job under this filter is `[IJ]`-titled — some are `[TCP]` or u
 - [ ] **BigQuery access** — Leo needs his own access to `certified-data-repository` (datasets `CDR`, `Staging` at minimum) if he'll run any manual queries/backfills himself, separate from the service account used by the automation.
 - [ ] **Toptal Platform staff-api access** — needed if Leo will run the job-backfill script himself (uses his own Platform login via the session's connector, no separate credential to hand off).
 - [ ] **Fix the Direct Manager sharing permission** (§2) — the one concrete blocking action item.
-- [ ] **Decide on new-job backfill cadence** (§2) — manual repeat vs. automate.
+- [ ] **Decide on new-job backfill cadence** (§2, §2a) — automation is blocked on either a Platform API service credential or the Maestro scheduler coming back online; manual re-runs are the only option until then.
 - [ ] Optionally: rotate/regenerate a fresh `GOOGLE_SERVICE_ACCOUNT_KEY` for the GitHub secret if there's ever a concern about key hygiene — the current key works fine, no action needed unless there's a specific reason.
